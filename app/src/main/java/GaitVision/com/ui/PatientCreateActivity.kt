@@ -87,6 +87,9 @@ class PatientCreateActivity : AppCompatActivity() {
             tvTitle.text = "Edit Patient"
             btnCreatePatient.text = "✓ Save Changes"
             btnCreateAndAnalyze.text = "Save & Start Analysis →"
+        } else {
+            // Load next patient ID for new patient
+            loadNextPatientId()
         }
     }
 
@@ -171,6 +174,15 @@ class PatientCreateActivity : AppCompatActivity() {
                 spinnerFeet.setSelection(feet - 4) // Array starts at 4
                 spinnerInches.setSelection(inches)
             }
+        }
+    }
+
+    private fun loadNextPatientId() {
+        lifecycleScope.launch {
+            val nextId = withContext(Dispatchers.IO) {
+                patientDao.getNextPatientId()
+            }
+            tvPatientId.text = nextId.toString()
         }
     }
 
