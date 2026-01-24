@@ -169,34 +169,24 @@ class PatientCreateActivity : AppCompatActivity() {
             return false
         }
 
-        // Validate feet
-        val feetStr = etFeet.text.toString().trim()
-        if (feetStr.isEmpty()) {
-            etFeet.error = "Feet is required"
-            etFeet.requestFocus()
-            return false
-        }
+        // Validate feet and inches
+        for ((editText, name, max) in listOf(
+            Triple(etFeet, "Feet", 8),
+            Triple(etInches, "Inches", 11)
+        )) {
+            val str = editText.text.toString().trim()
+            if (str.isEmpty()) {
+                editText.error = "$name is required"
+                editText.requestFocus()
+                return false
+            }
 
-        val feet = feetStr.toIntOrNull()
-        if (feet == null || feet < 0 || feet > 8) {
-            etFeet.error = "Feet must be between 0 and 8"
-            etFeet.requestFocus()
-            return false
-        }
-
-        // Validate inches
-        val inchesStr = etInches.text.toString().trim()
-        if (inchesStr.isEmpty()) {
-            etInches.error = "Inches is required"
-            etInches.requestFocus()
-            return false
-        }
-
-        val inches = inchesStr.toIntOrNull()
-        if (inches == null || inches < 0 || inches > 12) {
-            etInches.error = "Inches must be between 0 and 12"
-            etInches.requestFocus()
-            return false
+            val value = str.toIntOrNull()
+            if (value == null || value < 0 || value > max) {
+                editText.error = "$name must be between 0 and $max"
+                editText.requestFocus()
+                return false
+            }
         }
 
         return true
@@ -210,8 +200,8 @@ class PatientCreateActivity : AppCompatActivity() {
             spinnerGender.selectedItem.toString()
         } else null
         
-        val feet = etFeet.text.toString().toIntOrNull() ?: 5
-        val inches = etInches.text.toString().toIntOrNull() ?: 0
+        val feet = etFeet.text.toString().trim().toInt()
+        val inches = etInches.text.toString().trim().toInt()
         val heightInInches = (feet * 12) + inches
 
         lifecycleScope.launch {

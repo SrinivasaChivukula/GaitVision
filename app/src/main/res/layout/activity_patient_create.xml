@@ -216,7 +216,8 @@
                 android:paddingEnd="16dp"
                 android:inputType="number"
                 android:hint="0-8"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="8dp"
+                android:maxLength="1" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -238,7 +239,8 @@
                 android:paddingEnd="16dp"
                 android:inputType="number"
                 android:hint="0-12"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="8dp"
+                android:maxLength="2" />
 
             <TextView
                 android:layout_width="wrap_content"
