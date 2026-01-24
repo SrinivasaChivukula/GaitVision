@@ -21,7 +21,7 @@ interface VideoDao {
     suspend fun getVideoByPatientAndPath(patientId: Int, originalPath: String): Video?
 
     @Query("SELECT * FROM videos WHERE patientId = :patientId")
-    fun getVideosByPatientId(patientId: Long): Flow<List<Video>>
+    fun getVideosByPatientId(patientId: Int): Flow<List<Video>>
 
     @Query("SELECT * FROM videos WHERE patientId = :patientId ORDER BY recordedAt DESC")
     fun getVideosByPatientIdOrdered(patientId: Int): Flow<List<Video>>

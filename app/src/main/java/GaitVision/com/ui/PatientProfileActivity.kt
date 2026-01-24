@@ -41,14 +41,14 @@ class PatientProfileActivity : AppCompatActivity() {
     private lateinit var emptyAnalysisState: View
     
     private lateinit var adapter: AnalysisAdapter
-    private var patientIdArg: Long = -1
+    private var patientIdArg: Int = -1
     private var currentPatient: Patient? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_patient_profile)
 
-        patientIdArg = intent.getLongExtra("patientId", -1)
+        patientIdArg = intent.getLongExtra("patientId", -1).toInt()
         if (patientIdArg <= 0) {
             Toast.makeText(this, "Invalid patient", Toast.LENGTH_SHORT).show()
             finish()
@@ -182,7 +182,7 @@ class PatientProfileActivity : AppCompatActivity() {
 
     private fun startNewAnalysis() {
         currentPatient?.let { patient ->
-            participantId = patient.participantId
+            participantId = patient.participantId ?: 0 ?: 0
             participantHeight = patient.height
             currentPatientId = patient.participantId
 

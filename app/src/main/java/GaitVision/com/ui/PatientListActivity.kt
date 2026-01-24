@@ -98,7 +98,7 @@ class PatientListActivity : AppCompatActivity() {
             },
             getVideoCount = { patientId ->
                  runBlocking(Dispatchers.IO) {
-                 videoDao.getVideoCountForPatient(patientId)
+                 videoDao.getVideoCountForPatient(patientId ?: 0)
                 }
             }
         )
@@ -238,7 +238,7 @@ class PatientListActivity : AppCompatActivity() {
                 "videos" -> {
                     filtered = withContext(Dispatchers.IO) {
                         filtered.filter {
-                            videoDao.getVideoCountForPatient(it.id) > 0
+                            videoDao.getVideoCountForPatient(it.participantId ?: 0) > 0
                         }
                     }
                 }
@@ -252,7 +252,7 @@ class PatientListActivity : AppCompatActivity() {
                 "age" -> if (currentSortOrder) filtered.sortedBy { it.age } else filtered.sortedByDescending { it.age }
                 "videos" -> {
                     val patientVideoCounts = withContext(Dispatchers.IO) {
-                        filtered.associateWith { videoDao.getVideoCountForPatient(it.participantId) }
+                        filtered.associateWith { videoDao.getVideoCountForPatient(it.participantId ?: 0) }
                     }
                     if (currentSortOrder) patientVideoCounts.entries.sortedBy { it.value }.map { it.key }
                     else patientVideoCounts.entries.sortedByDescending { it.value }.map { it.key }
