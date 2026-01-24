@@ -38,10 +38,15 @@ class PatientListActivity : AppCompatActivity() {
     private lateinit var tvPatientCount: TextView
     private lateinit var etSearch: EditText
     private lateinit var btnClearSearch: ImageButton
+    private lateinit var tvHeaderId: TextView
+    private lateinit var tvHeaderName: TextView
+    private lateinit var tvHeaderAge: TextView
+    private lateinit var tvHeaderVideos: TextView
 
     private var allPatients: List<Patient> = emptyList()
     private var currentFilter = "all"
-    private var sortByName = false
+    private var currentSortColumn: String = "id"
+    private var currentSortOrder: Boolean = false // false for descending, true for ascending
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +69,10 @@ class PatientListActivity : AppCompatActivity() {
         tvPatientCount = findViewById(R.id.tvPatientCount)
         etSearch = findViewById(R.id.etSearch)
         btnClearSearch = findViewById(R.id.btnClearSearch)
+        tvHeaderId = findViewById(R.id.tvHeaderId)
+        tvHeaderName = findViewById(R.id.tvHeaderName)
+        tvHeaderAge = findViewById(R.id.tvHeaderAge)
+        tvHeaderVideos = findViewById(R.id.tvHeaderVideos)
 
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener {
             finish()
@@ -115,7 +124,6 @@ class PatientListActivity : AppCompatActivity() {
         val btnAll = findViewById<Button>(R.id.btnFilterAll)
         val btnRecent = findViewById<Button>(R.id.btnFilterRecent)
         val btnWithVideos = findViewById<Button>(R.id.btnFilterWithVideos)
-        val btnSortName = findViewById<Button>(R.id.btnSortName)
 
         fun updateFilterButtons(selected: String) {
             currentFilter = selected
@@ -128,12 +136,60 @@ class PatientListActivity : AppCompatActivity() {
         btnAll.setOnClickListener { updateFilterButtons("all") }
         btnRecent.setOnClickListener { updateFilterButtons("recent") }
         btnWithVideos.setOnClickListener { updateFilterButtons("videos") }
-        
-        btnSortName.setOnClickListener {
-            sortByName = !sortByName
-            btnSortName.text = if (sortByName) "↓ Name" else "↑ Name"
+
+        fun updateSortUI() {
+            val sortArrow = { ascending: Boolean -> if (ascending) " ↑" else " ↓" }
+
+            tvHeaderId.text = "ID" + if (currentSortColumn == "id") sortArrow(currentSortOrder) else ""
+            tvHeaderName.text = "NAME" + if (currentSortColumn == "name") sortArrow(currentSortOrder) else ""
+            tvHeaderAge.text = "AGE" + if (currentSortColumn == "age") sortArrow(currentSortOrder) else ""
+            tvHeaderVideos.text = "VIDEOS" + if (currentSortColumn == "videos") sortArrow(currentSortOrder) else ""
+        }
+
+        tvHeaderId.setOnClickListener {
+            if (currentSortColumn == "id") {
+                currentSortOrder = !currentSortOrder
+            } else {
+                currentSortColumn = "id"
+                currentSortOrder = false // Default to descending for new sort
+            }
+            updateSortUI()
             filterPatients(etSearch.text.toString())
         }
+
+        tvHeaderName.setOnClickListener {
+            if (currentSortColumn == "name") {
+                currentSortOrder = !currentSortOrder
+            } else {
+                currentSortColumn = "name"
+                currentSortOrder = true // Default to ascending for new sort
+            }
+            updateSortUI()
+            filterPatients(etSearch.text.toString())
+        }
+
+        tvHeaderAge.setOnClickListener {
+            if (currentSortColumn == "age") {
+                currentSortOrder = !currentSortOrder
+            } else {
+                currentSortColumn = "age"
+                currentSortOrder = true // Default to ascending for new sort
+            }
+            updateSortUI()
+            filterPatients(etSearch.text.toString())
+        }
+
+        tvHeaderVideos.setOnClickListener {
+            if (currentSortColumn == "videos") {
+                currentSortOrder = !currentSortOrder
+            } else {
+                currentSortColumn = "videos"
+                currentSortOrder = true // Default to ascending for new sort
+            }
+            updateSortUI()
+            filterPatients(etSearch.text.toString())
+        }
+        updateSortUI()
     }
 
     private fun loadPatients() {
@@ -176,10 +232,18 @@ class PatientListActivity : AppCompatActivity() {
             }
 
             // Apply sorting
-            filtered = if (sortByName) {
-                filtered.sortedByDescending { it.fullName.lowercase() }
-            } else {
-                filtered.sortedBy { it.fullName.lowercase() }
+            filtered = when (currentSortColumn) {
+                "id" -> if (currentSortOrder) filtered.sortedBy { it.id } else filtered.sortedByDescending { it.id }
+                "name" -> if (currentSortOrder) filtered.sortedBy { it.fullName.lowercase() } else filtered.sortedByDescending { it.fullName.lowercase() }
+                "age" -> if (currentSortOrder) filtered.sortedBy { it.age } else filtered.sortedByDescending { it.age }
+                "videos" -> {
+                    val patientVideoCounts = withContext(Dispatchers.IO) {
+                        filtered.associateWith { videoDao.getVideoCountForPatient(it.id) }
+                    }
+                    if (currentSortOrder) patientVideoCounts.entries.sortedBy { it.value }.map { it.key }
+                    else patientVideoCounts.entries.sortedByDescending { it.value }.map { it.key }
+                }
+                else -> filtered // Default or fallback
             }
 
             // Update UI
