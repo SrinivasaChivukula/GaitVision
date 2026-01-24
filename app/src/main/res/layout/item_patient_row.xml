@@ -20,30 +20,36 @@
         android:textStyle="bold" />
 
     <!-- Patient Name -->
-    <LinearLayout
+    <TextView
+        android:id="@+id/tvPatientFirstName"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_weight="2"
-        android:orientation="vertical">
+        android:layout_weight="1"
+        android:text="John"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
 
-        <TextView
-            android:id="@+id/tvPatientName"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="John Doe"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:ellipsize="end"
-            android:maxLines="1" />
+    <TextView
+        android:id="@+id/tvPatientLastName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Doe"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:ellipsize="end"
+        android:maxLines="1" />
 
-        <TextView
-            android:id="@+id/tvPatientGender"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Male"
-            android:textColor="#888888"
-            android:textSize="11sp" />
-    </LinearLayout>
+    <TextView
+        android:id="@+id/tvPatientGender"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Male"
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:visibility="gone" />
 
     <!-- Age -->
     <TextView

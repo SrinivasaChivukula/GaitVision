@@ -126,16 +126,6 @@
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp" />
 
-            <Button
-                android:id="@+id/btnSortName"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="↑ Name"
-                android:textSize="12sp"
-                android:background="@drawable/chip_background"
-                android:textColor="#AAAAAA"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp" />
         </LinearLayout>
     </HorizontalScrollView>
 
@@ -150,6 +140,7 @@
         android:paddingEnd="12dp">
 
         <TextView
+            android:id="@+id/tvHeaderId"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -159,15 +150,30 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tvHeaderFirstName"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="2"
-            android:text="NAME"
+            android:layout_weight="1"
+            android:text="FIRST"
             android:textColor="#888888"
             android:textSize="12sp"
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/tvHeaderLastName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="LAST"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvHeaderAge"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -178,6 +184,7 @@
             android:gravity="center" />
 
         <TextView
+            android:id="@+id/tvHeaderVideos"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
