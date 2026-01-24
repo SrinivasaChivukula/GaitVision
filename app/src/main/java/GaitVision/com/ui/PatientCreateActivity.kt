@@ -28,8 +28,8 @@ class PatientCreateActivity : AppCompatActivity() {
     private lateinit var etLastName: EditText
     private lateinit var etAge: EditText
     private lateinit var spinnerGender: Spinner
-    private lateinit var spinnerFeet: Spinner
-    private lateinit var spinnerInches: Spinner
+    private lateinit var etFeet: EditText
+    private lateinit var etInches: EditText
     private lateinit var etNotes: EditText
     private lateinit var btnCreatePatient: Button
     private lateinit var btnCreateAndAnalyze: Button
@@ -63,8 +63,8 @@ class PatientCreateActivity : AppCompatActivity() {
         etLastName = findViewById(R.id.etLastName)
         etAge = findViewById(R.id.etAge)
         spinnerGender = findViewById(R.id.spinnerGender)
-        spinnerFeet = findViewById(R.id.spinnerFeet)
-        spinnerInches = findViewById(R.id.spinnerInches)
+        etFeet = findViewById(R.id.etFeet)
+        etInches = findViewById(R.id.etInches)
         etNotes = findViewById(R.id.etNotes)
         btnCreatePatient = findViewById(R.id.btnCreatePatient)
         btnCreateAndAnalyze = findViewById(R.id.btnCreateAndAnalyze)
@@ -112,42 +112,9 @@ class PatientCreateActivity : AppCompatActivity() {
         }
         spinnerGender.adapter = genderAdapter
 
-        // Height spinners with custom adapters
-        val feetArray = arrayOf("4", "5", "6", "7")
-        val feetAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, feetArray) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getDropDownView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-        }
-        spinnerFeet.adapter = feetAdapter
-
-        val inchesArray = (0..11).map { it.toString() }.toTypedArray()
-        val inchesAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, inchesArray) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getDropDownView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-        }
-        spinnerInches.adapter = inchesAdapter
-
-        // Set default selections
-        spinnerFeet.setSelection(1) // Default to 5 feet
-        spinnerInches.setSelection(9) // Default to 9 inches
+        // Set default height values
+        etFeet.setText("5")
+        etInches.setText("9")
     }
 
     private fun generatePatientId() {
@@ -178,11 +145,11 @@ class PatientCreateActivity : AppCompatActivity() {
                 val genderIndex = genderArray.indexOf(it.gender ?: "")
                 if (genderIndex >= 0) spinnerGender.setSelection(genderIndex)
                 
-                // Set height spinners
+                // Set height EditTexts
                 val feet = it.height / 12
                 val inches = it.height % 12
-                spinnerFeet.setSelection(feet - 4) // Array starts at 4
-                spinnerInches.setSelection(inches)
+                etFeet.setText(feet.toString())
+                etInches.setText(inches.toString())
             }
         }
     }
@@ -203,6 +170,36 @@ class PatientCreateActivity : AppCompatActivity() {
             return false
         }
 
+        // Validate feet
+        val feetStr = etFeet.text.toString().trim()
+        if (feetStr.isEmpty()) {
+            etFeet.error = "Feet is required"
+            etFeet.requestFocus()
+            return false
+        }
+
+        val feet = feetStr.toIntOrNull()
+        if (feet == null || feet < 0 || feet > 8) {
+            etFeet.error = "Feet must be between 0 and 8"
+            etFeet.requestFocus()
+            return false
+        }
+
+        // Validate inches
+        val inchesStr = etInches.text.toString().trim()
+        if (inchesStr.isEmpty()) {
+            etInches.error = "Inches is required"
+            etInches.requestFocus()
+            return false
+        }
+
+        val inches = inchesStr.toIntOrNull()
+        if (inches == null || inches < 0 || inches > 12) {
+            etInches.error = "Inches must be between 0 and 12"
+            etInches.requestFocus()
+            return false
+        }
+
         return true
     }
 
@@ -214,8 +211,8 @@ class PatientCreateActivity : AppCompatActivity() {
             spinnerGender.selectedItem.toString()
         } else null
         
-        val feet = spinnerFeet.selectedItem.toString().toIntOrNull() ?: 5
-        val inches = spinnerInches.selectedItem.toString().toIntOrNull() ?: 0
+        val feet = etFeet.text.toString().toIntOrNull() ?: 5
+        val inches = etInches.text.toString().toIntOrNull() ?: 0
         val heightInInches = (feet * 12) + inches
 
         lifecycleScope.launch {
