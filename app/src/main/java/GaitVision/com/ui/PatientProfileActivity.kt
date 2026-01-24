@@ -83,7 +83,7 @@ class PatientProfileActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnEdit).setOnClickListener {
             val intent = Intent(this, PatientCreateActivity::class.java)
-            intent.putExtra("patientId", patientIdArg)
+            intent.putExtra("patientId", patientIdArg.toLong())
             startActivity(intent)
         }
 

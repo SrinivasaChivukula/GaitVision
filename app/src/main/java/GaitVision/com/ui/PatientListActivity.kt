@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -92,9 +93,13 @@ class PatientListActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         adapter = PatientAdapter(
             onPatientClick = { patient ->
-                val intent = Intent(this, PatientProfileActivity::class.java)
-                intent.putExtra("patientId", patient.participantId)
-                startActivity(intent)
+                patient.participantId?.let { patientId ->
+                    val intent = Intent(this, PatientProfileActivity::class.java)
+                    intent.putExtra("patientId", patientId.toLong())
+                    startActivity(intent)
+                } ?: run {
+                    Toast.makeText(this, "Invalid patient ID", Toast.LENGTH_SHORT).show()
+                }
             },
             getVideoCount = { patientId ->
                  runBlocking(Dispatchers.IO) {
