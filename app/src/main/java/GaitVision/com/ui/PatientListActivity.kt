@@ -39,7 +39,8 @@ class PatientListActivity : AppCompatActivity() {
     private lateinit var etSearch: EditText
     private lateinit var btnClearSearch: ImageButton
     private lateinit var tvHeaderId: TextView
-    private lateinit var tvHeaderName: TextView
+    private lateinit var tvHeaderFirstName: TextView
+    private lateinit var tvHeaderLastName: TextView
     private lateinit var tvHeaderAge: TextView
     private lateinit var tvHeaderVideos: TextView
 
@@ -70,7 +71,8 @@ class PatientListActivity : AppCompatActivity() {
         etSearch = findViewById(R.id.etSearch)
         btnClearSearch = findViewById(R.id.btnClearSearch)
         tvHeaderId = findViewById(R.id.tvHeaderId)
-        tvHeaderName = findViewById(R.id.tvHeaderName)
+        tvHeaderFirstName = findViewById(R.id.tvHeaderFirstName)
+        tvHeaderLastName = findViewById(R.id.tvHeaderLastName)
         tvHeaderAge = findViewById(R.id.tvHeaderAge)
         tvHeaderVideos = findViewById(R.id.tvHeaderVideos)
 
@@ -141,7 +143,8 @@ class PatientListActivity : AppCompatActivity() {
             val sortArrow = { ascending: Boolean -> if (ascending) " ↑" else " ↓" }
 
             tvHeaderId.text = "ID" + if (currentSortColumn == "id") sortArrow(currentSortOrder) else ""
-            tvHeaderName.text = "NAME" + if (currentSortColumn == "name") sortArrow(currentSortOrder) else ""
+            tvHeaderFirstName.text = "FIRST" + if (currentSortColumn == "firstName") sortArrow(currentSortOrder) else ""
+            tvHeaderLastName.text = "LAST" + if (currentSortColumn == "lastName") sortArrow(currentSortOrder) else ""
             tvHeaderAge.text = "AGE" + if (currentSortColumn == "age") sortArrow(currentSortOrder) else ""
             tvHeaderVideos.text = "VIDEOS" + if (currentSortColumn == "videos") sortArrow(currentSortOrder) else ""
         }
@@ -157,11 +160,22 @@ class PatientListActivity : AppCompatActivity() {
             filterPatients(etSearch.text.toString())
         }
 
-        tvHeaderName.setOnClickListener {
-            if (currentSortColumn == "name") {
+        tvHeaderFirstName.setOnClickListener {
+            if (currentSortColumn == "firstName") {
                 currentSortOrder = !currentSortOrder
             } else {
-                currentSortColumn = "name"
+                currentSortColumn = "firstName"
+                currentSortOrder = true // Default to ascending for new sort
+            }
+            updateSortUI()
+            filterPatients(etSearch.text.toString())
+        }
+
+        tvHeaderLastName.setOnClickListener {
+            if (currentSortColumn == "lastName") {
+                currentSortOrder = !currentSortOrder
+            } else {
+                currentSortColumn = "lastName"
                 currentSortOrder = true // Default to ascending for new sort
             }
             updateSortUI()
@@ -208,11 +222,10 @@ class PatientListActivity : AppCompatActivity() {
             // Apply search filter
             if (query.isNotEmpty()) {
                 val lowerQuery = query.lowercase()
-                filtered = filtered.filter { patient ->
-                    patient.firstName.lowercase().contains(lowerQuery) ||
-                    patient.lastName.lowercase().contains(lowerQuery) ||
-                    patient.participantId?.lowercase()?.contains(lowerQuery) == true ||
-                    patient.fullName.lowercase().contains(lowerQuery)
+                filtered = filtered.filter {
+                    it.firstName.lowercase().contains(lowerQuery) ||
+                            it.lastName.lowercase().contains(lowerQuery) ||
+                            it.participantId?.lowercase()?.contains(lowerQuery) == true
                 }
             }
 
@@ -224,8 +237,8 @@ class PatientListActivity : AppCompatActivity() {
                 }
                 "videos" -> {
                     filtered = withContext(Dispatchers.IO) {
-                        filtered.filter { patient ->
-                            videoDao.getVideoCountForPatient(patient.id) > 0
+                        filtered.filter {
+                            videoDao.getVideoCountForPatient(it.id) > 0
                         }
                     }
                 }
@@ -234,7 +247,8 @@ class PatientListActivity : AppCompatActivity() {
             // Apply sorting
             filtered = when (currentSortColumn) {
                 "id" -> if (currentSortOrder) filtered.sortedBy { it.id } else filtered.sortedByDescending { it.id }
-                "name" -> if (currentSortOrder) filtered.sortedBy { it.fullName.lowercase() } else filtered.sortedByDescending { it.fullName.lowercase() }
+                "firstName" -> if (currentSortOrder) filtered.sortedBy { it.firstName.lowercase() } else filtered.sortedByDescending { it.firstName.lowercase() }
+                "lastName" -> if (currentSortOrder) filtered.sortedBy { it.lastName.lowercase() } else filtered.sortedByDescending { it.lastName.lowercase() }
                 "age" -> if (currentSortOrder) filtered.sortedBy { it.age } else filtered.sortedByDescending { it.age }
                 "videos" -> {
                     val patientVideoCounts = withContext(Dispatchers.IO) {
@@ -249,7 +263,7 @@ class PatientListActivity : AppCompatActivity() {
             // Update UI
             adapter.submitList(filtered)
             tvPatientCount.text = "${filtered.size} patient${if (filtered.size != 1) "s" else ""}"
-            
+
             if (filtered.isEmpty()) {
                 rvPatients.visibility = View.GONE
                 emptyState.visibility = View.VISIBLE
@@ -297,15 +311,15 @@ class PatientAdapter(
 
     inner class PatientViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val tvPatientId: TextView = itemView.findViewById(R.id.tvPatientId)
-        private val tvPatientName: TextView = itemView.findViewById(R.id.tvPatientName)
-        private val tvPatientGender: TextView = itemView.findViewById(R.id.tvPatientGender)
+        private val tvPatientFirstName: TextView = itemView.findViewById(R.id.tvPatientFirstName)
+        private val tvPatientLastName: TextView = itemView.findViewById(R.id.tvPatientLastName)
         private val tvPatientAge: TextView = itemView.findViewById(R.id.tvPatientAge)
         private val tvVideoCount: TextView = itemView.findViewById(R.id.tvVideoCount)
 
    fun bind(patient: Patient) {
         tvPatientId.text = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
-        tvPatientName.text = patient.fullName
-        tvPatientGender.text = patient.gender ?: "—"
+        tvPatientFirstName.text = patient.firstName
+        tvPatientLastName.text = patient.lastName
         tvPatientAge.text = patient.age?.toString() ?: "—"
 
         val count = getVideoCount(patient.id)

@@ -150,11 +150,24 @@
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvHeaderName"
+            android:id="@+id/tvHeaderFirstName"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="2"
-            android:text="NAME"
+            android:layout_weight="1"
+            android:text="FIRST"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvHeaderLastName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="LAST"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:textStyle="bold" />
             android:textColor="#888888"
             android:textSize="12sp"
             android:textStyle="bold" />
