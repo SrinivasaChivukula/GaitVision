@@ -146,8 +146,8 @@ class AnalysisActivity : AppCompatActivity() {
                         height = participantHeight
                     )
                 }
-                currentPatientId = patient.id
-                Log.d("AnalysisActivity", "Patient ID: ${patient.id}")
+                currentPatientId = patient.participantId
+                Log.d("AnalysisActivity", "Patient ID: ${patient.participantId}")
 
                 // Process the video
                 val outputFilePath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/edited_video.mp4"

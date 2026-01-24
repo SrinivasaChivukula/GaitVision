@@ -35,8 +35,7 @@ class PatientCreateActivity : AppCompatActivity() {
     private lateinit var btnCreateAndAnalyze: Button
     private lateinit var tvTitle: TextView
 
-    private var editingPatientId: Long = -1
-    private var generatedPatientId: String = ""
+    private var editingPatientId: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,11 +44,10 @@ class PatientCreateActivity : AppCompatActivity() {
         val database = AppDatabase.getDatabase(this)
         patientDao = database.patientDao()
 
-        editingPatientId = intent.getLongExtra("patientId", -1)
+        editingPatientId = intent.getLongExtra("patientId", -1).toInt()
 
         initViews()
         setupSpinners()
-        generatePatientId()
         
         if (editingPatientId > 0) {
             loadPatientForEditing()
@@ -150,16 +148,6 @@ class PatientCreateActivity : AppCompatActivity() {
         spinnerInches.setSelection(9) // Default to 9 inches
     }
 
-    private fun generatePatientId() {
-        lifecycleScope.launch {
-            val count = withContext(Dispatchers.IO) {
-                patientDao.getPatientCount()
-            }
-            generatedPatientId = "GV-${String.format("%04d", count + 1)}"
-            tvPatientId.text = generatedPatientId
-        }
-    }
-
     private fun loadPatientForEditing() {
         lifecycleScope.launch {
             val patient = withContext(Dispatchers.IO) {
@@ -167,8 +155,7 @@ class PatientCreateActivity : AppCompatActivity() {
             }
             
             patient?.let {
-                tvPatientId.text = it.participantId ?: "GV-${String.format("%04d", it.id)}"
-                generatedPatientId = it.participantId ?: generatedPatientId
+                tvPatientId.text = it.participantId?.toString() ?: "N/A"
                 etFirstName.setText(it.firstName)
                 etLastName.setText(it.lastName)
                 etAge.setText(it.age?.toString() ?: "")
@@ -229,12 +216,12 @@ class PatientCreateActivity : AppCompatActivity() {
                     lastName = lastName,
                     age = age,
                     gender = gender,
-                    height = heightInInches
+                    height = heightInInches,
+                    participantId = editingPatientId // Ensure participantId is passed for update
                 ) ?: return@launch
             } else {
                 // Create new patient
                 Patient(
-                    participantId = generatedPatientId,
                     firstName = firstName,
                     lastName = lastName,
                     age = age,
@@ -244,12 +231,10 @@ class PatientCreateActivity : AppCompatActivity() {
             }
 
             val patientId = withContext(Dispatchers.IO) {
-                if (editingPatientId > 0) {
-                    patientDao.updatePatient(patient)
-                    patient.id
-                } else {
-                    patientDao.insertPatient(patient)
-                }
+                val newId = patientDao.insertPatient(patient)
+                // For a new patient, the newId is the generated participantId
+                // For an update, patient.participantId is already set
+                newId
             }
 
             withContext(Dispatchers.Main) {
@@ -261,9 +246,9 @@ class PatientCreateActivity : AppCompatActivity() {
 
                 if (startAnalysis) {
                     // Set global variables for analysis flow
-                    participantId = generatedPatientId
+                    participantId = patientId.toInt()
                     participantHeight = heightInInches
-                    currentPatientId = patientId
+                    currentPatientId = patientId.toInt()
 
                     // Go to video picker
                     val intent = Intent(this@PatientCreateActivity, VideoPickerActivity::class.java)

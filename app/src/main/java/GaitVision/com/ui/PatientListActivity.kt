@@ -46,7 +46,7 @@ class PatientListActivity : AppCompatActivity() {
 
     private var allPatients: List<Patient> = emptyList()
     private var currentFilter = "all"
-    private var currentSortColumn: String = "id"
+    private var currentSortColumn: String = "participantId"
     private var currentSortOrder: Boolean = false // false for descending, true for ascending
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,7 +93,7 @@ class PatientListActivity : AppCompatActivity() {
         adapter = PatientAdapter(
             onPatientClick = { patient ->
                 val intent = Intent(this, PatientProfileActivity::class.java)
-                intent.putExtra("patientId", patient.id)
+                intent.putExtra("patientId", patient.participantId)
                 startActivity(intent)
             },
             getVideoCount = { patientId ->
@@ -225,7 +225,7 @@ class PatientListActivity : AppCompatActivity() {
                 filtered = filtered.filter {
                     it.firstName.lowercase().contains(lowerQuery) ||
                             it.lastName.lowercase().contains(lowerQuery) ||
-                            it.participantId?.lowercase()?.contains(lowerQuery) == true
+                    it.participantId?.toString()?.lowercase()?.contains(lowerQuery) == true
                 }
             }
 
@@ -246,13 +246,13 @@ class PatientListActivity : AppCompatActivity() {
 
             // Apply sorting
             filtered = when (currentSortColumn) {
-                "id" -> if (currentSortOrder) filtered.sortedBy { it.id } else filtered.sortedByDescending { it.id }
+                "id" -> if (currentSortOrder) filtered.sortedBy { it.participantId } else filtered.sortedByDescending { it.participantId }
                 "firstName" -> if (currentSortOrder) filtered.sortedBy { it.firstName.lowercase() } else filtered.sortedByDescending { it.firstName.lowercase() }
                 "lastName" -> if (currentSortOrder) filtered.sortedBy { it.lastName.lowercase() } else filtered.sortedByDescending { it.lastName.lowercase() }
                 "age" -> if (currentSortOrder) filtered.sortedBy { it.age } else filtered.sortedByDescending { it.age }
                 "videos" -> {
                     val patientVideoCounts = withContext(Dispatchers.IO) {
-                        filtered.associateWith { videoDao.getVideoCountForPatient(it.id) }
+                        filtered.associateWith { videoDao.getVideoCountForPatient(it.participantId) }
                     }
                     if (currentSortOrder) patientVideoCounts.entries.sortedBy { it.value }.map { it.key }
                     else patientVideoCounts.entries.sortedByDescending { it.value }.map { it.key }
@@ -286,11 +286,11 @@ class PatientListActivity : AppCompatActivity() {
 // Patient Adapter
 class PatientAdapter(
     private val onPatientClick: (Patient) -> Unit,
-    private val getVideoCount: (Long) -> Int
+    private val getVideoCount: (Int?) -> Int
 ) : RecyclerView.Adapter<PatientAdapter.PatientViewHolder>() {
 
     private var patients: List<Patient> = emptyList()
-    private val videoCounts = mutableMapOf<Long, Int>()
+    private val videoCounts = mutableMapOf<Int?, Int>()
 
     fun submitList(newPatients: List<Patient>) {
         patients = newPatients
@@ -317,12 +317,12 @@ class PatientAdapter(
         private val tvVideoCount: TextView = itemView.findViewById(R.id.tvVideoCount)
 
    fun bind(patient: Patient) {
-        tvPatientId.text = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
+        tvPatientId.text = patient.participantId?.toString() ?: "N/A"
         tvPatientFirstName.text = patient.firstName
         tvPatientLastName.text = patient.lastName
         tvPatientAge.text = patient.age?.toString() ?: "—"
 
-        val count = getVideoCount(patient.id)
+        val count = patient.participantId?.let { getVideoCount(it) } ?: 0
         tvVideoCount.text = count.toString()
 
         itemView.setOnClickListener { onPatientClick(patient) }

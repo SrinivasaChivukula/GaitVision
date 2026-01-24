@@ -14,8 +14,8 @@ interface PatientDao {
     suspend fun insertPatients(patients: List<Patient>): List<Long>
 
     // Read
-    @Query("SELECT * FROM patients WHERE id = :patientId")
-    suspend fun getPatientById(patientId: Long): Patient?
+    @Query("SELECT * FROM patients WHERE participantId = :patientId")
+    suspend fun getPatientById(patientId: Int): Patient?
 
     @Query("SELECT * FROM patients")
     fun getAllPatients(): Flow<List<Patient>>
@@ -24,7 +24,7 @@ interface PatientDao {
     fun searchPatients(search: String): Flow<List<Patient>>
 
     @Query("SELECT * FROM patients WHERE participantId = :participantId LIMIT 1")
-    suspend fun getPatientByParticipantId(participantId: String): Patient?
+    suspend fun getPatientByParticipantId(participantId: Int): Patient?
 
     // Update
     @Update
@@ -34,8 +34,8 @@ interface PatientDao {
     @Delete
     suspend fun deletePatient(patient: Patient): Int
 
-    @Query("DELETE FROM patients WHERE id = :patientId")
-    suspend fun deletePatientById(patientId: Long): Int
+    @Query("DELETE FROM patients WHERE participantId = :patientId")
+    suspend fun deletePatientById(patientId: Int): Int
 
     // Utility
     @Query("SELECT COUNT(*) FROM patients")

@@ -144,7 +144,7 @@ class PatientProfileActivity : AppCompatActivity() {
     }
 
     private fun displayPatientInfo(patient: Patient) {
-        tvPatientId.text = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
+        tvPatientId.text = patient.participantId?.toString() ?: "N/A"
         tvPatientName.text = patient.fullName
         tvAge.text = if (patient.age != null) "${patient.age} years" else "—"
         tvGender.text = patient.gender ?: "—"
@@ -182,12 +182,12 @@ class PatientProfileActivity : AppCompatActivity() {
 
     private fun startNewAnalysis() {
         currentPatient?.let { patient ->
-            participantId = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
+            participantId = patient.participantId
             participantHeight = patient.height
-            currentPatientId = patient.id
+            currentPatientId = patient.participantId
 
             val intent = Intent(this, VideoPickerActivity::class.java)
-            intent.putExtra("patientId", patient.id)
+            intent.putExtra("patientId", patient.participantId)
             intent.putExtra("fromPatientProfile", true)
             startActivity(intent)
         }

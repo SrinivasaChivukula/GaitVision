@@ -18,7 +18,7 @@ interface GaitScoreDao {
     suspend fun getGaitScoreById(scoreId: Long): GaitScore?
 
     @Query("SELECT * FROM gait_scores WHERE patientId = :patientId")
-    fun getGaitScoresByPatientId(patientId: Long): Flow<List<GaitScore>>
+    fun getGaitScoresByPatientId(patientId: Int): Flow<List<GaitScore>>
 
     @Query("SELECT * FROM gait_scores WHERE patientId = :patientId ORDER BY recordedAt DESC")
     fun getGaitScoresByPatientIdOrdered(patientId: Long): Flow<List<GaitScore>>
@@ -27,13 +27,13 @@ interface GaitScoreDao {
     suspend fun getGaitScoreByVideoId(videoId: Long): GaitScore?
 
     @Query("SELECT * FROM gait_scores WHERE patientId = :patientId ORDER BY overallScore DESC LIMIT 1")
-    suspend fun getBestScoreForPatient(patientId: Long): GaitScore?
+    suspend fun getBestScoreForPatient(patientId: Int): GaitScore?
 
     @Query("SELECT * FROM gait_scores WHERE patientId = :patientId ORDER BY overallScore ASC LIMIT 1")
-    suspend fun getWorstScoreForPatient(patientId: Long): GaitScore?
+    suspend fun getWorstScoreForPatient(patientId: Int): GaitScore?
 
     @Query("SELECT AVG(overallScore) FROM gait_scores WHERE patientId = :patientId")
-    suspend fun getAverageScoreForPatient(patientId: Long): Double?
+    suspend fun getAverageScoreForPatient(patientId: Int): Double?
 
     @Query("SELECT * FROM gait_scores")
     fun getAllGaitScores(): Flow<List<GaitScore>>
@@ -50,7 +50,7 @@ interface GaitScoreDao {
     suspend fun deleteGaitScoreById(scoreId: Long): Int
 
     @Query("DELETE FROM gait_scores WHERE patientId = :patientId")
-    suspend fun deleteGaitScoresByPatientId(patientId: Long): Int
+    suspend fun deleteGaitScoresByPatientId(patientId: Int): Int
 
     // Utility
     @Query("SELECT COUNT(*) FROM gait_scores")
@@ -68,12 +68,12 @@ interface GaitScoreDao {
         WHERE patientId = :patientId
         ORDER BY recordedAt DESC
     """)
-    fun getGaitScoresWithPatientInfo(patientId: Long): Flow<List<GaitScore>>
+    fun getGaitScoresWithPatientInfo(patientId: Int): Flow<List<GaitScore>>
 
     // Search
     @Query("""
         SELECT gs.* FROM gait_scores gs
-        INNER JOIN patients p ON gs.patientId = p.id
+        INNER JOIN patients p ON gs.patientId = p.participantId
         WHERE p.firstName LIKE :search OR p.lastName LIKE :search
         ORDER BY gs.recordedAt DESC
     """)

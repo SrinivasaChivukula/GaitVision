@@ -16,7 +16,7 @@ class PatientRepository(private val patientDao: PatientDao) {
     }
 
     // Read
-    suspend fun getPatientById(patientId: Long): Patient? {
+    suspend fun getPatientById(patientId: Int): Patient? {
         return patientDao.getPatientById(patientId)
     }
 
@@ -39,7 +39,7 @@ class PatientRepository(private val patientDao: PatientDao) {
         return patientDao.deletePatient(patient) > 0
     }
 
-    suspend fun deletePatientById(patientId: Long): Boolean {
+    suspend fun deletePatientById(patientId: Int): Boolean {
         return patientDao.deletePatientById(patientId) > 0
     }
 
@@ -53,7 +53,7 @@ class PatientRepository(private val patientDao: PatientDao) {
     }
 
     // logic
-    suspend fun patientExists(patientId: Long): Boolean {
+    suspend fun patientExists(patientId: Int): Boolean {
         return getPatientById(patientId) != null
     }
 
@@ -69,19 +69,19 @@ class PatientRepository(private val patientDao: PatientDao) {
         }
     }
 
-    suspend fun getPatientByParticipantId(participantId: String): Patient? {
+    suspend fun getPatientByParticipantId(participantId: Int): Patient? {
         return patientDao.getPatientByParticipantId(participantId)
     }
 
     suspend fun findOrCreatePatientByParticipantId(
-        participantId: String,
+        participantId: Int?,
         height: Int,
         firstName: String = "",
         lastName: String = "",
         age: Int? = null,
         gender: String? = null
     ): Patient {
-        val existing = getPatientByParticipantId(participantId)
+        val existing = participantId?.let { patientDao.getPatientByParticipantId(it) }
         return if (existing != null) {
             // Update height if provided and different
             if (existing.height != height) {
@@ -103,7 +103,7 @@ class PatientRepository(private val patientDao: PatientDao) {
                 createdAt = System.currentTimeMillis()
             )
             val id = insertPatient(newPatient)
-            newPatient.copy(id = id)
+            newPatient.copy(participantId = id.toInt())
         }
     }
 }

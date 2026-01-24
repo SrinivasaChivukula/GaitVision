@@ -18,13 +18,13 @@ interface VideoDao {
     suspend fun getVideoById(videoId: Long): Video?
 
     @Query("SELECT * FROM videos WHERE patientId = :patientId AND originalVideoPath = :originalPath LIMIT 1")
-    suspend fun getVideoByPatientAndPath(patientId: Long, originalPath: String): Video?
+    suspend fun getVideoByPatientAndPath(patientId: Int, originalPath: String): Video?
 
     @Query("SELECT * FROM videos WHERE patientId = :patientId")
     fun getVideosByPatientId(patientId: Long): Flow<List<Video>>
 
     @Query("SELECT * FROM videos WHERE patientId = :patientId ORDER BY recordedAt DESC")
-    fun getVideosByPatientIdOrdered(patientId: Long): Flow<List<Video>>
+    fun getVideosByPatientIdOrdered(patientId: Int): Flow<List<Video>>
 
     @Query("SELECT * FROM videos")
     fun getAllVideos(): Flow<List<Video>>
@@ -41,19 +41,19 @@ interface VideoDao {
     suspend fun deleteVideoById(videoId: Long): Int
 
     @Query("DELETE FROM videos WHERE patientId = :patientId")
-    suspend fun deleteVideosByPatientId(patientId: Long): Int
+    suspend fun deleteVideosByPatientId(patientId: Int): Int
 
     // Utility
     @Query("SELECT COUNT(*) FROM videos")
     suspend fun getVideoCount(): Int
 
     @Query("SELECT COUNT(*) FROM videos WHERE patientId = :patientId")
-    suspend fun getVideoCountForPatient(patientId: Long): Int
+    suspend fun getVideoCountForPatient(patientId: Int): Int
 
     // Relations
     @Query("""
         SELECT v.* FROM videos v
-        INNER JOIN patients p ON v.patientId = p.id
+        INNER JOIN patients p ON v.patientId = p.participantId
         WHERE p.firstName LIKE :search OR p.lastName LIKE :search OR v.originalVideoPath LIKE :search
         ORDER BY v.recordedAt DESC
     """)
