@@ -204,35 +204,48 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="24dp">
 
-            <Spinner
-                android:id="@+id/spinnerFeet"
+            <EditText
+                android:id="@+id/etFeet"
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:background="@drawable/spinner_background"
+                android:background="@drawable/edit_text_background"
                 android:textColor="#FFFFFF"
-                android:entries="@array/feet_array" />
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-8"
+                android:layout_marginEnd="8dp"
+                android:maxLength="1" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="  ft  "
+                android:text="ft"
                 android:textColor="#AAAAAA"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:layout_marginEnd="8dp" />
 
-            <Spinner
-                android:id="@+id/spinnerInches"
+            <EditText
+                android:id="@+id/etInches"
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:background="@drawable/spinner_background"
+                android:background="@drawable/edit_text_background"
                 android:textColor="#FFFFFF"
-                android:entries="@array/inches_array" />
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-12"
+                android:layout_marginEnd="8dp"
+                android:maxLength="2" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="  in"
+                android:text="in"
                 android:textColor="#AAAAAA"
                 android:textSize="16sp" />
         </LinearLayout>
