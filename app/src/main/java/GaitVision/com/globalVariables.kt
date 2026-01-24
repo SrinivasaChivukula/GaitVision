@@ -19,11 +19,11 @@ var torsoAngles : MutableList<Float> = mutableListOf()
 var strideAngles: MutableList<Float> = mutableListOf()
 
 //User input for ID and height
-var participantId: String = ""
+var participantId: Int = 0
 var participantHeight: Int = 0
 
 //Database IDs for current session
-var currentPatientId: Long? = null
+var currentPatientId: Int? = null
 var currentVideoId: Long? = null
 
 //Variable for counting angle faults

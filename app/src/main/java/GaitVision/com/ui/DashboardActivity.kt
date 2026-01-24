@@ -93,7 +93,7 @@ class DashboardActivity : AppCompatActivity() {
         rightKneeMaxAngles.clear()
         torsoMinAngles.clear()
         torsoMaxAngles.clear()
-        participantId = ""
+        participantId = 0
         participantHeight = 0
         currentPatientId = null
         currentVideoId = null
@@ -201,7 +201,7 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         // Save to global variables
-        participantId = id
+        participantId = id.toInt()
         participantHeight = heightInInches
 
         return true

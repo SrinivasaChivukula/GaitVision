@@ -9,7 +9,7 @@ import androidx.room.PrimaryKey
     foreignKeys = [
         ForeignKey(
             entity = Patient::class,
-            parentColumns = ["id"],
+            parentColumns = ["participantId"],
             childColumns = ["patientId"],
             onDelete = ForeignKey.CASCADE
         ),
@@ -24,7 +24,7 @@ import androidx.room.PrimaryKey
 data class GaitScore(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
-    val patientId: Long,
+    val patientId: Int,
     val videoId: Long,
     val overallScore: Double,
     val recordedAt: Long = System.currentTimeMillis(),
