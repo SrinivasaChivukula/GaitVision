@@ -41,14 +41,14 @@ class PatientProfileActivity : AppCompatActivity() {
     private lateinit var emptyAnalysisState: View
     
     private lateinit var adapter: AnalysisAdapter
-    private var patientIdArg: Long = -1
+    private var patientIdArg: Int = -1
     private var currentPatient: Patient? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_patient_profile)
 
-        patientIdArg = intent.getLongExtra("patientId", -1)
+        patientIdArg = intent.getLongExtra("patientId", -1).toInt()
         if (patientIdArg <= 0) {
             Toast.makeText(this, "Invalid patient", Toast.LENGTH_SHORT).show()
             finish()
@@ -83,7 +83,7 @@ class PatientProfileActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnEdit).setOnClickListener {
             val intent = Intent(this, PatientCreateActivity::class.java)
-            intent.putExtra("patientId", patientIdArg)
+            intent.putExtra("patientId", patientIdArg.toLong())
             startActivity(intent)
         }
 
@@ -144,7 +144,7 @@ class PatientProfileActivity : AppCompatActivity() {
     }
 
     private fun displayPatientInfo(patient: Patient) {
-        tvPatientId.text = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
+        tvPatientId.text = patient.participantId?.toString() ?: "N/A"
         tvPatientName.text = patient.fullName
         tvAge.text = if (patient.age != null) "${patient.age} years" else "—"
         tvGender.text = patient.gender ?: "—"
@@ -182,12 +182,12 @@ class PatientProfileActivity : AppCompatActivity() {
 
     private fun startNewAnalysis() {
         currentPatient?.let { patient ->
-            participantId = patient.participantId ?: "GV-${String.format("%04d", patient.id)}"
+            participantId = patient.participantId ?: 0 ?: 0
             participantHeight = patient.height
-            currentPatientId = patient.id
+            currentPatientId = patient.participantId
 
             val intent = Intent(this, VideoPickerActivity::class.java)
-            intent.putExtra("patientId", patient.id)
+            intent.putExtra("patientId", patient.participantId)
             intent.putExtra("fromPatientProfile", true)
             startActivity(intent)
         }

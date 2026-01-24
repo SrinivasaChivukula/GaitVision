@@ -6,12 +6,10 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "patients",
-    indices = [Index(value = ["participantId"], unique = false)]
 )
 data class Patient(
     @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
-    val participantId: String? = null, // External participant ID for lookup
+    val participantId: Int? = null, // Auto-generated patient ID
     val firstName: String = "",
     val lastName: String = "",
     val age: Int? = null,
@@ -24,6 +22,6 @@ data class Patient(
         get() = if (firstName.isNotEmpty() || lastName.isNotEmpty()) {
             "$firstName $lastName".trim()
         } else {
-            participantId ?: "Unknown"
+            participantId?.toString() ?: "Unknown"
         }
 }

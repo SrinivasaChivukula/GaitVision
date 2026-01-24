@@ -20,11 +20,11 @@ class VideoRepository(private val videoDao: VideoDao) {
         return videoDao.getVideoById(videoId)
     }
 
-    fun getVideosByPatientId(patientId: Long): Flow<List<Video>> {
+    fun getVideosByPatientId(patientId: Int): Flow<List<Video>> {
         return videoDao.getVideosByPatientId(patientId)
     }
 
-    fun getVideosByPatientIdOrdered(patientId: Long): Flow<List<Video>> {
+    fun getVideosByPatientIdOrdered(patientId: Int): Flow<List<Video>> {
         return videoDao.getVideosByPatientIdOrdered(patientId)
     }
 
@@ -46,7 +46,7 @@ class VideoRepository(private val videoDao: VideoDao) {
         return videoDao.deleteVideoById(videoId) > 0
     }
 
-    suspend fun deleteVideosByPatientId(patientId: Long): Boolean {
+    suspend fun deleteVideosByPatientId(patientId: Int): Boolean {
         return videoDao.deleteVideosByPatientId(patientId) > 0
     }
 
@@ -55,7 +55,7 @@ class VideoRepository(private val videoDao: VideoDao) {
         return videoDao.getVideoCount()
     }
 
-    suspend fun getVideoCountForPatient(patientId: Long): Int {
+    suspend fun getVideoCountForPatient(patientId: Int): Int {
         return videoDao.getVideoCountForPatient(patientId)
     }
 
@@ -70,12 +70,12 @@ class VideoRepository(private val videoDao: VideoDao) {
         return getVideoById(videoId) != null
     }
 
-    suspend fun hasVideosForPatient(patientId: Long): Boolean {
+    suspend fun hasVideosForPatient(patientId: Int): Boolean {
         return getVideoCountForPatient(patientId) > 0
     }
 
     // Get the most recent video for a patient
-    suspend fun getLatestVideoForPatient(patientId: Long): Video? {
+    suspend fun getLatestVideoForPatient(patientId: Int): Video? {
         return videoDao.getVideosByPatientIdOrdered(patientId).let { flow ->
             val videos = mutableListOf<Video>()
             flow.collect { videos.addAll(it) }

@@ -20,11 +20,11 @@ class GaitScoreRepository(private val gaitScoreDao: GaitScoreDao) {
         return gaitScoreDao.getGaitScoreById(scoreId)
     }
 
-    fun getGaitScoresByPatientId(patientId: Long): Flow<List<GaitScore>> {
+    fun getGaitScoresByPatientId(patientId: Int): Flow<List<GaitScore>> {
         return gaitScoreDao.getGaitScoresByPatientId(patientId)
     }
 
-    fun getGaitScoresByPatientIdOrdered(patientId: Long): Flow<List<GaitScore>> {
+    fun getGaitScoresByPatientIdOrdered(patientId: Int): Flow<List<GaitScore>> {
         return gaitScoreDao.getGaitScoresByPatientIdOrdered(patientId)
     }
 
@@ -37,15 +37,15 @@ class GaitScoreRepository(private val gaitScoreDao: GaitScoreDao) {
     }
 
     // Best/Worst score operations
-    suspend fun getBestScoreForPatient(patientId: Long): GaitScore? {
+    suspend fun getBestScoreForPatient(patientId: Int): GaitScore? {
         return gaitScoreDao.getBestScoreForPatient(patientId)
     }
 
-    suspend fun getWorstScoreForPatient(patientId: Long): GaitScore? {
+    suspend fun getWorstScoreForPatient(patientId: Int): GaitScore? {
         return gaitScoreDao.getWorstScoreForPatient(patientId)
     }
 
-    suspend fun getAverageScoreForPatient(patientId: Long): Double? {
+    suspend fun getAverageScoreForPatient(patientId: Int): Double? {
         return gaitScoreDao.getAverageScoreForPatient(patientId)
     }
 
@@ -63,7 +63,7 @@ class GaitScoreRepository(private val gaitScoreDao: GaitScoreDao) {
         return gaitScoreDao.deleteGaitScoreById(scoreId) > 0
     }
 
-    suspend fun deleteGaitScoresByPatientId(patientId: Long): Boolean {
+    suspend fun deleteGaitScoresByPatientId(patientId: Int): Boolean {
         return gaitScoreDao.deleteGaitScoresByPatientId(patientId) > 0
     }
 
@@ -72,7 +72,7 @@ class GaitScoreRepository(private val gaitScoreDao: GaitScoreDao) {
         return gaitScoreDao.getGaitScoreCount()
     }
 
-    suspend fun getGaitScoreCountForPatient(patientId: Long): Int {
+    suspend fun getGaitScoreCountForPatient(patientId: Int): Int {
         return gaitScoreDao.getGaitScoreCountForPatient(patientId)
     }
 
@@ -91,7 +91,7 @@ class GaitScoreRepository(private val gaitScoreDao: GaitScoreDao) {
         return getGaitScoreById(scoreId) != null
     }
 
-    suspend fun hasScoresForPatient(patientId: Long): Boolean {
+    suspend fun hasScoresForPatient(patientId: Int): Boolean {
         return getGaitScoreCountForPatient(patientId) > 0
     }
 
