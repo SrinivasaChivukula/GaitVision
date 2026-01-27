@@ -68,6 +68,11 @@ class AnalysisActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_analysis)
 
+        // Get the video URI from VideoPickerActivity
+        intent.data?.let { uri ->
+            galleryUri = uri
+        }
+
         setupInitialUI()
         setupButtons()
 
