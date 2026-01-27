@@ -1,14 +1,12 @@
 package GaitVision.com.ui
 
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.lifecycleScope
 import GaitVision.com.R
 import GaitVision.com.data.AppDatabase
@@ -88,8 +86,6 @@ class PatientCreateActivity : AppCompatActivity() {
         if (editingPatientId > 0) {
             tvTitle.text = "Edit Patient"
             btnCreatePatient.text = "Save Changes"
-            btnCreatePatient.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_check_24, 0, 0, 0)
-            TextViewCompat.setCompoundDrawableTintList(btnCreatePatient, ColorStateList.valueOf(Color.WHITE))
             btnCreateAndAnalyze.text = "Save & Start Analysis →"
         } else {
             // Load next patient ID for new patient

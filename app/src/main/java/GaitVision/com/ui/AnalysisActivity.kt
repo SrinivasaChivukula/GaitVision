@@ -1,7 +1,6 @@
 package GaitVision.com.ui
 
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.media.MediaScannerConnection
 import android.os.Bundle
@@ -19,7 +18,6 @@ import android.widget.VideoView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
-import androidx.core.widget.TextViewCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -187,8 +185,6 @@ class AnalysisActivity : AppCompatActivity() {
                     val runButton = findViewById<Button>(R.id.btnRunAnalysis)
                     runButton.isEnabled = true
                     runButton.text = "Run Analysis"
-                    runButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_science_24, 0, 0, 0)
-                    TextViewCompat.setCompoundDrawableTintList(runButton, ColorStateList.valueOf(Color.WHITE))
                     isProcessing = false
                 }
             }
