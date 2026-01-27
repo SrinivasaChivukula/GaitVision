@@ -88,40 +88,52 @@
         android:orientation="horizontal"
         android:layout_marginBottom="12dp">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPick"
             android:layout_width="0dp"
             android:layout_height="56dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
-            android:text="📁 Gallery"
+            android:text="Gallery"
             android:textSize="14sp"
             android:textColor="@color/white"
-            android:backgroundTint="#2196F3" />
+            android:backgroundTint="#2196F3"
+            app:icon="@drawable/ic_folder_24"
+            app:iconTint="@color/white"
+            app:iconPadding="8dp"
+            app:iconGravity="start" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRecord"
             android:layout_width="0dp"
             android:layout_height="56dp"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:text="📹 Record"
+            android:text="Record"
             android:textSize="14sp"
             android:textColor="@color/white"
-            android:backgroundTint="#4CAF50" />
+            android:backgroundTint="#4CAF50"
+            app:icon="@drawable/baseline_videocam_24"
+            app:iconTint="@color/white"
+            app:iconPadding="8dp"
+            app:iconGravity="start" />
 
     </LinearLayout>
 
     <!-- Continue Button -->
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnContinue"
         android:layout_width="match_parent"
         android:layout_height="64dp"
-        android:text="✓ Use This Video"
+        android:text="Use This Video"
         android:textSize="18sp"
         android:textStyle="bold"
         android:textColor="@color/white"
         android:backgroundTint="#9C27B0"
+        app:icon="@drawable/ic_check_24"
+        app:iconTint="@color/white"
+        app:iconPadding="12dp"
+        app:iconGravity="start"
         android:visibility="gone" />
 
 </LinearLayout>

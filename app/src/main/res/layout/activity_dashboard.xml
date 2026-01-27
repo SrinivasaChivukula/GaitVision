@@ -42,11 +42,12 @@
                     android:textSize="14sp" />
             </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="🚶"
-                android:textSize="40sp" />
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_directions_walk_24"
+                app:tint="#4FC3F7"
+                android:contentDescription="GaitVision logo" />
         </LinearLayout>
 
         <!-- Patient Management Section -->
@@ -238,14 +239,29 @@
                 android:scaleType="centerCrop"
                 android:contentDescription="Video preview" />
 
-            <TextView
+            <LinearLayout
                 android:id="@+id/tvVideoPlaceholder"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:text="📹 No video selected"
-                android:textColor="#666666"
-                android:textSize="16sp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/baseline_videocam_24"
+                    app:tint="#666666"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="Video icon" />
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="No video selected"
+                    android:textColor="#666666"
+                    android:textSize="16sp" />
+            </LinearLayout>
         </FrameLayout>
 
         <!-- Video Selection Buttons -->
@@ -255,55 +271,79 @@
             android:orientation="horizontal"
             android:layout_marginBottom="16dp">
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRecord"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
-                android:text="🎥 Record"
+                android:text="Record"
+                android:textSize="16sp"
                 android:textColor="#FFFFFF"
-                android:background="@drawable/button_outline_background"
+                android:backgroundTint="#00000000"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:strokeColor="#4FC3F7"
+                app:strokeWidth="1dp"
+                app:cornerRadius="8dp"
                 android:layout_marginEnd="8dp"
-                android:drawableStart="@android:drawable/ic_menu_camera"
-                android:drawablePadding="8dp" />
+                app:icon="@drawable/baseline_videocam_24"
+                app:iconTint="#FFFFFF"
+                app:iconPadding="8dp"
+                app:iconGravity="start" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSelect"
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
-                android:text="📁 Select"
+                android:text="Select"
+                android:textSize="16sp"
                 android:textColor="#FFFFFF"
-                android:background="@drawable/button_outline_background"
+                android:backgroundTint="#00000000"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:strokeColor="#4FC3F7"
+                app:strokeWidth="1dp"
+                app:cornerRadius="8dp"
                 android:layout_marginStart="8dp"
-                android:drawableStart="@android:drawable/ic_menu_gallery"
-                android:drawablePadding="8dp" />
+                app:icon="@drawable/ic_folder_24"
+                app:iconTint="#FFFFFF"
+                app:iconPadding="8dp"
+                app:iconGravity="start" />
         </LinearLayout>
 
         <!-- Analyze Button -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAnalyze"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:text="🔬 Run Gait Analysis"
+            android:text="Run Gait Analysis"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold"
-            android:background="@drawable/button_primary_background"
+            android:backgroundTint="#4CAF50"
+            app:cornerRadius="12dp"
             android:layout_marginBottom="12dp"
-            android:drawableStart="@drawable/ic_gait_analysis"
-            android:drawablePadding="12dp" />
+            app:icon="@drawable/ic_science_24"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="12dp"
+            app:iconGravity="start" />
 
         <!-- View Results Button -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnViewResults"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:text="📊 View Last Results"
+            android:text="View Last Results"
+            android:textSize="16sp"
             android:textColor="#4FC3F7"
-            android:background="@drawable/button_outline_background"
-            android:drawableStart="@android:drawable/ic_menu_recent_history"
-            android:drawablePadding="8dp" />
+            android:backgroundTint="#00000000"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:strokeColor="#4FC3F7"
+            app:strokeWidth="1dp"
+            app:cornerRadius="8dp"
+            app:icon="@drawable/ic_bar_chart_24"
+            app:iconTint="#4FC3F7"
+            app:iconPadding="8dp"
+            app:iconGravity="start" />
 
     </LinearLayout>
 </ScrollView>

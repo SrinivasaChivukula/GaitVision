@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -195,31 +196,43 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnViewVideo"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
-            android:text="📹 Video"
+            android:text="Video"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:background="@drawable/button_outline_background"
+            android:backgroundTint="#00000000"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:strokeColor="#4FC3F7"
+            app:strokeWidth="1dp"
+            app:cornerRadius="8dp"
             android:layout_marginEnd="8dp"
-            android:drawableStart="@android:drawable/ic_media_play"
-            android:drawablePadding="6dp" />
+            app:icon="@drawable/baseline_videocam_24"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="6dp"
+            app:iconGravity="start" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnViewCharts"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
-            android:text="📊 Charts"
+            android:text="Charts"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:background="@drawable/button_outline_background"
+            android:backgroundTint="#00000000"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:strokeColor="#4FC3F7"
+            app:strokeWidth="1dp"
+            app:cornerRadius="8dp"
             android:layout_marginStart="8dp"
-            android:drawableStart="@android:drawable/ic_menu_view"
-            android:drawablePadding="6dp" />
+            app:icon="@drawable/ic_bar_chart_24"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="6dp"
+            app:iconGravity="start" />
     </LinearLayout>
 
 </LinearLayout>
