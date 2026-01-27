@@ -33,23 +33,23 @@ class VideoPickerActivity : AppCompatActivity() {
             registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
                 Log.d("VideoPicker", "Selected URI: $uri")
                 
-                if (uri != null) {
-                    selectedVideo = uri
-                    
+                uri?.let { videoUri ->
+                    selectedVideo = videoUri
+
                     // Show the video view and hide placeholder
                     videoView.visibility = View.VISIBLE
                     tvPlaceholder.visibility = View.GONE
                     btnContinue.visibility = View.VISIBLE
-                    
+
                     // Update status text
                     tvStatus.text = "Video loaded successfully"
-                    
+
                     // Set and start the video
-                    videoView.setVideoURI(uri)
+                    videoView.setVideoURI(videoUri)
                     videoView.start()
-                    
+
                     Log.d("VideoPicker", "Video playback started")
-                } else {
+                } ?: run {
                     Log.e("VideoPicker", "URI is null - no video selected or permission denied")
                     Toast.makeText(this, "Failed to load video. Please try again.", Toast.LENGTH_SHORT).show()
                     tvStatus.text = "Failed to load video"
@@ -71,11 +71,9 @@ class VideoPickerActivity : AppCompatActivity() {
         
         btnContinue.setOnClickListener {
             selectedVideo?.let { uri ->
-                // Set global variable for AnalysisActivity
-                GaitVision.com.galleryUri = uri
-                
-                // Navigate to AnalysisActivity
-                val intent = Intent(this, AnalysisActivity::class.java)
+                val intent = Intent(this, AnalysisActivity::class.java).apply {
+                    data = uri
+                }
                 startActivity(intent)
             } ?: run {
                 Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show()
