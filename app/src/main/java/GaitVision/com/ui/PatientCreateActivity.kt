@@ -85,7 +85,7 @@ class PatientCreateActivity : AppCompatActivity() {
 
         if (editingPatientId > 0) {
             tvTitle.text = "Edit Patient"
-            btnCreatePatient.text = "✓ Save Changes"
+            btnCreatePatient.text = "Save Changes"
             btnCreateAndAnalyze.text = "Save & Start Analysis →"
         } else {
             // Load next patient ID for new patient

@@ -1,6 +1,7 @@
 package GaitVision.com.ui
 
 import android.content.Intent
+import android.graphics.Color
 import android.media.MediaScannerConnection
 import android.os.Bundle
 import android.os.Environment
@@ -181,8 +182,9 @@ class AnalysisActivity : AppCompatActivity() {
                     ).show()
                     findViewById<View>(R.id.progressSection).visibility = View.GONE
                     findViewById<View>(R.id.infoSection).visibility = View.VISIBLE
-                    findViewById<Button>(R.id.btnRunAnalysis).isEnabled = true
-                    findViewById<Button>(R.id.btnRunAnalysis).text = "🔬 Run Analysis"
+                    val runButton = findViewById<Button>(R.id.btnRunAnalysis)
+                    runButton.isEnabled = true
+                    runButton.text = "Run Analysis"
                     isProcessing = false
                 }
             }

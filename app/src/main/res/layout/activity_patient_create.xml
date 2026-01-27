@@ -273,25 +273,31 @@
             android:layout_marginBottom="24dp" />
 
         <!-- Action Buttons -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCreatePatient"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:text="✓ Create Patient"
+            android:text="Create Patient"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold"
-            android:background="@drawable/button_primary_background"
+            android:backgroundTint="#4CAF50"
+            app:cornerRadius="12dp"
+            app:icon="@drawable/ic_check_24"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="8dp"
+            app:iconGravity="start"
             android:layout_marginBottom="12dp" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCreateAndAnalyze"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:text="Create &amp; Start Analysis →"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
-            android:background="@drawable/button_secondary_background"
+            android:backgroundTint="#9C27B0"
+            app:cornerRadius="12dp"
             android:layout_marginBottom="16dp" />
 
     </LinearLayout>

@@ -85,15 +85,19 @@
 
         </androidx.cardview.widget.CardView>
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRunAnalysis"
             android:layout_width="match_parent"
             android:layout_height="64dp"
-            android:text="🔬 Run Analysis"
+            android:text="Run Analysis"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="@color/white"
-            android:backgroundTint="#9C27B0" />
+            android:backgroundTint="#9C27B0"
+            app:icon="@drawable/ic_science_24"
+            app:iconTint="@color/white"
+            app:iconPadding="12dp"
+            app:iconGravity="start" />
 
     </LinearLayout>
 
@@ -266,14 +270,16 @@
     </LinearLayout>
 
     <!-- View Results Button -->
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btnViewResults"
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:layout_margin="16dp"
-        android:text="📊 View Results"
-        android:drawableStart="@android:drawable/ic_menu_recent_history"
-        android:drawablePadding="8dp"
+        android:text="View Results"
+        app:icon="@drawable/ic_bar_chart_24"
+        app:iconTint="@color/white"
+        app:iconPadding="12dp"
+        app:iconGravity="start"
         android:textSize="18sp"
         android:textStyle="bold"
         android:textColor="@color/white"

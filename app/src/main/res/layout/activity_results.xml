@@ -160,24 +160,32 @@
             </androidx.cardview.widget.CardView>
 
             <!-- Action Buttons -->
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnExportCsv"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:text="📄 Export CSV Files"
+                android:text="Export CSV Files"
                 android:textSize="16sp"
                 android:textColor="@color/white"
                 android:backgroundTint="#2196F3"
+                app:icon="@drawable/ic_description_24"
+                app:iconTint="@color/white"
+                app:iconPadding="12dp"
+                app:iconGravity="start"
                 android:layout_marginBottom="12dp" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnMainMenu"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:text="🏠 Return to Main Menu"
+                android:text="Return to Main Menu"
                 android:textSize="16sp"
                 android:textColor="@color/white"
-                android:backgroundTint="#9C27B0" />
+                android:backgroundTint="#9C27B0"
+                app:icon="@drawable/baseline_home_24"
+                app:iconTint="@color/white"
+                app:iconPadding="12dp"
+                app:iconGravity="start" />
 
         </LinearLayout>
 
