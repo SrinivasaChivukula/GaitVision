@@ -17,6 +17,7 @@ import com.github.mikephil.charting.data.LineDataSet
 import GaitVision.com.R
 import GaitVision.com.extractedSignals
 import GaitVision.com.extractedStrides
+import GaitVision.com.selectedStrideIndices
 import GaitVision.com.extractionDiagnostics
 import GaitVision.com.stepSignalMode
 import GaitVision.com.participantId
@@ -26,6 +27,7 @@ import GaitVision.com.gait.Signals
 /**
  * Dashboard showing all computed signals for debugging and analysis.
  * Mirrors the PC pipeline's expanded_dashboard.py visualization.
+ * at some point the goal is to have the app process the traiing batch, so pc parity will be abandonded
  */
 class SignalsDashboardActivity : AppCompatActivity() {
 
@@ -158,14 +160,15 @@ class SignalsDashboardActivity : AppCompatActivity() {
     }
 
     private fun updateLegend(signalId: Int) {
+        val strideLegend = "Gold = SELECTED, Green = Valid, Gray = Invalid"
         tvLegend.text = when (signalId) {
-            1 -> "Horizontal distance between ankles | Green bands = Valid strides"
-            2 -> "Blue = Left Knee, Red = Right Knee | Green bands = Valid strides"
-            3 -> "Blue = Left Ankle Y, Red = Right Ankle Y (inverted) | Green bands = Valid strides"
-            4 -> "Blue = Left Ankle Vy, Red = Right Ankle Vy | Green bands = Valid strides"
-            5 -> "Blue = Left Hip Y, Red = Right Hip Y (inverted) | Green bands = Valid strides"
-            6 -> "Trunk lean angle (degrees) | Green bands = Valid strides"
-            else -> "Blue = Left, Red = Right | Green bands = Valid strides"
+            1 -> "Horizontal distance between ankles | $strideLegend"
+            2 -> "Blue = Left Knee, Red = Right Knee | $strideLegend"
+            3 -> "Blue = Left Ankle Y, Red = Right Ankle Y (inverted) | $strideLegend"
+            4 -> "Blue = Left Ankle Vy, Red = Right Ankle Vy | $strideLegend"
+            5 -> "Blue = Left Hip Y, Red = Right Hip Y (inverted) | $strideLegend"
+            6 -> "Trunk lean angle (degrees) | $strideLegend"
+            else -> "Blue = Left, Red = Right | $strideLegend"
         }
     }
 
@@ -395,35 +398,45 @@ class SignalsDashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Add green highlight bands for valid strides.
-     * MPAndroidChart doesn't support axvspan directly, so we use LimitLines.
+     * Add highlight bands for strides.
+     * - Gold/thick = SELECTED strides (used for feature computation)
+     * - Green/dashed = Other valid strides
+     * - Gray/thin = Invalid strides
      */
     private fun addStrideHighlights(chart: LineChart, signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
         if (strides == null) return
 
         // Clear previous limit lines
         chart.xAxis.removeAllLimitLines()
+        
+        val selectedIndices = selectedStrideIndices ?: emptyList()
 
-        for (stride in strides) {
-            if (!stride.isValid) continue
+        strides.forEachIndexed { idx, stride ->
+            val startTime = signals.timestamps.getOrNull(stride.startFrame) ?: return@forEachIndexed
+            val endTime = signals.timestamps.getOrNull(minOf(stride.endFrame, signals.timestamps.size - 1)) ?: return@forEachIndexed
 
-            val startTime = signals.timestamps.getOrNull(stride.startFrame) ?: continue
-            val endTime = signals.timestamps.getOrNull(minOf(stride.endFrame, signals.timestamps.size - 1)) ?: continue
+            if (startTime.isNaN() || endTime.isNaN()) return@forEachIndexed
 
-            if (startTime.isNaN() || endTime.isNaN()) continue
-
-            // Add start line (green)
-            val startLine = LimitLine(startTime, "")
-            startLine.lineColor = Color.parseColor("#4CAF50")
-            startLine.lineWidth = 1f
-            startLine.enableDashedLine(10f, 5f, 0f)
+            val isSelected = selectedIndices.contains(idx)
+            val lineColor = when {
+                isSelected -> Color.parseColor("#FFC107")  // Gold = SELECTED
+                stride.isValid -> Color.parseColor("#4CAF50")  // Green = valid but not selected
+                else -> Color.parseColor("#9E9E9E")  // Gray = invalid
+            }
+            val lineWidth = if (isSelected) 2.5f else 1f
+            
+            // Add start line
+            val startLine = LimitLine(startTime, if (isSelected) "★" else "")
+            startLine.lineColor = lineColor
+            startLine.lineWidth = lineWidth
+            if (!isSelected) startLine.enableDashedLine(10f, 5f, 0f)
             chart.xAxis.addLimitLine(startLine)
 
-            // Add end line (green)
+            // Add end line
             val endLine = LimitLine(endTime, "")
-            endLine.lineColor = Color.parseColor("#4CAF50")
-            endLine.lineWidth = 1f
-            endLine.enableDashedLine(10f, 5f, 0f)
+            endLine.lineColor = lineColor
+            endLine.lineWidth = lineWidth
+            if (!isSelected) endLine.enableDashedLine(10f, 5f, 0f)
             chart.xAxis.addLimitLine(endLine)
         }
     }

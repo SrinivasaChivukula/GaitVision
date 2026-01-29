@@ -25,6 +25,7 @@ var scoringResult: ScoringResult? = null
 // Signals for visualization (populated during feature extraction)
 var extractedSignals: Signals? = null
 var extractedStrides: List<Stride>? = null
+var selectedStrideIndices: List<Int>? = null  // Indices of the 2 strides used for features
 var stepSignalMode: String? = null
 
 //All angles list for use in application
@@ -53,5 +54,6 @@ var count: Int = 0;
 var videoLength: Long = 0
 
 // Video processing options (mirrors PC pipeline options)
-var enableCLAHE: Boolean = true  // CLAHE enabled by default - improves detection +2.4% per PC testing
+var enableCLAHE: Boolean = false  // CLAHE disabled - testing without for parity comparison
 var enableROIRetry: Boolean = true  // Retry with ROI tracking if first pass fails
+var forceCpuInference: Boolean = true  // Force CPU inference for parity with PC (GPU can produce slight differences)

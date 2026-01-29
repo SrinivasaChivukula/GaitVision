@@ -29,7 +29,7 @@ class FeatureExtractor(
     private val extremaPercentileHi: Float = GaitConfig.EXTREMA_PERCENTILE_HI
 ) {
     companion object {
-        private const val TAG = "FeatureExtractor"
+        private const val TAG = "GaitDebug"
         
         // Core keypoints for gait analysis
         val CORE_KEYPOINTS = intArrayOf(
@@ -41,6 +41,9 @@ class FeatureExtractor(
             MediaPipePoseBackend.RIGHT_ANKLE
         )
     }
+    
+    // Debug counter to avoid log spam
+    private var periodicityDebugCount = 0
     
     /**
      * Step signal detection modes - all are leg-swap robust.
@@ -67,6 +70,12 @@ class FeatureExtractor(
      * Extract gait features from pose sequence.
      */
     fun extract(poseSeq: PoseSequence): Pair<GaitFeatures?, GaitDiagnostics> {
+        periodicityDebugCount = 0  // Reset for each video
+        Log.d(TAG, "=== VIDEO INFO ===")
+        Log.d(TAG, "  numFramesTotal: ${poseSeq.numFramesTotal}")
+        Log.d(TAG, "  detectedFrames: ${poseSeq.frames.size}")
+        Log.d(TAG, "  fps: ${poseSeq.fps}")
+        Log.d(TAG, "  detectionRate: ${String.format("%.1f", poseSeq.detectionRate * 100)}%")
         Log.d(TAG, "Extracting features from ${poseSeq.frames.size} frames")
         
         // Basic checks
@@ -79,25 +88,96 @@ class FeatureExtractor(
                 "detection_rate_${(poseSeq.detectionRate * 100).toInt()}%"))
         }
         
-        // Step 1: Compute signals
+        // =====================================================================
+        // FULL PIPELINE DEBUG - Compare with PC
+        // =====================================================================
+        
+        // STAGE 1: RAW LANDMARKS
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 1: RAW LANDMARKS ==========")
+        Log.d(TAG, "frame,la_x,la_y,ra_x,ra_y,lk_x,lk_y,rk_x,rk_y,lh_x,lh_y,rh_x,rh_y,la_conf,ra_conf,lk_conf,rk_conf")
+        for (frameIdx in 0 until poseSeq.numFramesTotal) {
+            val frame = poseSeq.frames.find { it.frameIdx == frameIdx }
+            if (frame != null) {
+                val la = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE]
+                val ra = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE]
+                val lk = frame.keypoints[MediaPipePoseBackend.LEFT_KNEE]
+                val rk = frame.keypoints[MediaPipePoseBackend.RIGHT_KNEE]
+                val lh = frame.keypoints[MediaPipePoseBackend.LEFT_HIP]
+                val rh = frame.keypoints[MediaPipePoseBackend.RIGHT_HIP]
+                val laC = frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
+                val raC = frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
+                val lkC = frame.confidences[MediaPipePoseBackend.LEFT_KNEE]
+                val rkC = frame.confidences[MediaPipePoseBackend.RIGHT_KNEE]
+                Log.d(TAG, "$frameIdx,${String.format("%.6f", la[0])},${String.format("%.6f", la[1])},${String.format("%.6f", ra[0])},${String.format("%.6f", ra[1])},${String.format("%.6f", lk[0])},${String.format("%.6f", lk[1])},${String.format("%.6f", rk[0])},${String.format("%.6f", rk[1])},${String.format("%.6f", lh[0])},${String.format("%.6f", lh[1])},${String.format("%.6f", rh[0])},${String.format("%.6f", rh[1])},${String.format("%.3f", laC)},${String.format("%.3f", raC)},${String.format("%.3f", lkC)},${String.format("%.3f", rkC)}")
+            } else {
+                Log.d(TAG, "$frameIdx,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,0,0")
+            }
+        }
+        
+        // STAGE 2: COMPUTE RAW SIGNALS
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 2: RAW SIGNALS (before interp/smooth) ==========")
         var signals = computeSignals(poseSeq)
+        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right,ankle_left_y,ankle_right_y")
+        for (i in 0 until signals.timestamps.size) {
+            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])},${String.format("%.6f", signals.ankleLeftY[i])},${String.format("%.6f", signals.ankleRightY[i])}")
+        }
         
-        // Step 2: Interpolate gaps
+        // STAGE 3: INTERPOLATE
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 3: AFTER INTERPOLATION ==========")
         signals = interpolateSignals(signals)
+        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
+        for (i in 0 until signals.timestamps.size) {
+            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
+        }
         
-        // Step 3: Light smoothing
+        // STAGE 4: SMOOTH
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 4: AFTER SMOOTHING ==========")
         signals = smoothSignals(signals)
+        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
+        for (i in 0 until signals.timestamps.size) {
+            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
+        }
         
-        // Step 4: Compute velocities
+        // Signal stats summary
+        val interAnkle = signals.interAnkleDist
+        val validCount = interAnkle.count { !it.isNaN() }
+        val validVals = interAnkle.filter { !it.isNaN() }
+        if (validVals.isNotEmpty()) {
+            Log.d(TAG, "INTER_ANKLE stats: count=$validCount, mean=${String.format("%.4f", validVals.average())}, std=${String.format("%.4f", validVals.std())}, min=${String.format("%.4f", validVals.minOrNull())}, max=${String.format("%.4f", validVals.maxOrNull())}")
+        }
+        
+        // STAGE 5: COMPUTE VELOCITIES
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 5: AFTER VELOCITY COMPUTATION ==========")
         signals = computeVelocities(signals, poseSeq.fps)
         
-        // Step 5: Determine near leg
+        // STAGE 6: DETERMINE NEAR LEG
         val nearLeg = determineNearLeg(poseSeq)
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 6: NEAR LEG ==========")
+        Log.d(TAG, "Near leg: $nearLeg")
         
-        // Step 6: Multi-mode step detection
+        // STAGE 7: STEP SIGNAL MODE SELECTION & STEP DETECTION
+        Log.d(TAG, "")
+        Log.d(TAG, "========== STAGE 7: STEP SIGNAL & PEAKS ==========")
         val (stepMode, stepSignal, modeScores) = selectStepSignalMode(signals, poseSeq, nearLeg, poseSeq.fps)
+        Log.d(TAG, "Selected mode: ${stepMode.value}")
+        
+        // Log the full step signal used for peak detection
+        Log.d(TAG, "STEP_SIGNAL (${stepMode.value}):")
+        Log.d(TAG, "frame,value")
+        for (i in stepSignal.indices) {
+            Log.d(TAG, "$i,${String.format("%.6f", stepSignal[i])}")
+        }
+        
         val steps = detectStepsFromSignal(stepSignal, poseSeq.fps)
-        Log.d(TAG, "Step signal mode: ${stepMode.value}, detected ${steps.size} steps")
+        Log.d(TAG, "")
+        Log.d(TAG, "DETECTED PEAKS: ${steps.map { it.frameIdx }}")
+        Log.d(TAG, "PEAK TIMES: ${steps.map { String.format("%.3f", it.timeS) }}")
         
         if (steps.size < 4) {
             return Pair(null, createDiagnostics(poseSeq, QualityFlag.NO_CYCLES, 
@@ -136,6 +216,7 @@ class FeatureExtractor(
         // Store signals and strides for visualization
         GaitVision.com.extractedSignals = signals
         GaitVision.com.extractedStrides = validatedStrides
+        GaitVision.com.selectedStrideIndices = selectedIndices
         GaitVision.com.stepSignalMode = stepMode.value
         
         if (features.valid_stride_count == 0) {
@@ -430,19 +511,37 @@ class FeatureExtractor(
     
     private fun computeVelocities(signals: Signals, fps: Float): Signals {
         val dt = 1f / fps
+        val n = signals.ankleLeftY.size
         
-        for (i in 1 until signals.ankleLeftY.size - 1) {
-            if (!signals.ankleLeftY[i-1].isNaN() && !signals.ankleLeftY[i+1].isNaN()) {
-                signals.ankleLeftVy[i] = (signals.ankleLeftY[i+1] - signals.ankleLeftY[i-1]) / (2 * dt)
+        // Use forward difference to match PC: v[i] = (s[i+1] - s[i]) / dt
+        for (i in 0 until n - 1) {
+            if (!signals.ankleLeftY[i].isNaN() && !signals.ankleLeftY[i+1].isNaN()) {
+                signals.ankleLeftVy[i] = (signals.ankleLeftY[i+1] - signals.ankleLeftY[i]) / dt
             }
-            if (!signals.ankleRightY[i-1].isNaN() && !signals.ankleRightY[i+1].isNaN()) {
-                signals.ankleRightVy[i] = (signals.ankleRightY[i+1] - signals.ankleRightY[i-1]) / (2 * dt)
+            if (!signals.ankleRightY[i].isNaN() && !signals.ankleRightY[i+1].isNaN()) {
+                signals.ankleRightVy[i] = (signals.ankleRightY[i+1] - signals.ankleRightY[i]) / dt
             }
             
-            val hipAvgPrev = (signals.hipLeftY[i-1] + signals.hipRightY[i-1]) / 2f
+            val hipAvgCurr = (signals.hipLeftY[i] + signals.hipRightY[i]) / 2f
             val hipAvgNext = (signals.hipLeftY[i+1] + signals.hipRightY[i+1]) / 2f
-            if (!hipAvgPrev.isNaN() && !hipAvgNext.isNaN()) {
-                signals.hipAvgVy[i] = (hipAvgNext - hipAvgPrev) / (2 * dt)
+            if (!hipAvgCurr.isNaN() && !hipAvgNext.isNaN()) {
+                signals.hipAvgVy[i] = (hipAvgNext - hipAvgCurr) / dt
+            }
+        }
+        
+        // Backward difference for last frame (like PC)
+        val last = n - 1
+        if (last > 0) {
+            if (!signals.ankleLeftY[last].isNaN() && !signals.ankleLeftY[last-1].isNaN()) {
+                signals.ankleLeftVy[last] = (signals.ankleLeftY[last] - signals.ankleLeftY[last-1]) / dt
+            }
+            if (!signals.ankleRightY[last].isNaN() && !signals.ankleRightY[last-1].isNaN()) {
+                signals.ankleRightVy[last] = (signals.ankleRightY[last] - signals.ankleRightY[last-1]) / dt
+            }
+            val hipAvgLast = (signals.hipLeftY[last] + signals.hipRightY[last]) / 2f
+            val hipAvgPrev = (signals.hipLeftY[last-1] + signals.hipRightY[last-1]) / 2f
+            if (!hipAvgLast.isNaN() && !hipAvgPrev.isNaN()) {
+                signals.hipAvgVy[last] = (hipAvgLast - hipAvgPrev) / dt
             }
         }
         
@@ -678,27 +777,57 @@ class FeatureExtractor(
         // Autocorrelation
         val n = centered.size
         val acf = FloatArray(n)
+        
+        // First compute acf[0] (the energy/variance at lag 0)
+        var acf0 = 0f
+        for (i in 0 until n) {
+            acf0 += centered[i] * centered[i]
+        }
+        if (acf0 < 1e-8f) return 0f
+        
+        // Now compute normalized autocorrelation for all lags
         for (lag in 0 until n) {
             var sum = 0f
             for (i in 0 until n - lag) {
                 sum += centered[i] * centered[i + lag]
             }
-            acf[lag] = sum / (acf[0] + 1e-8f)
+            acf[lag] = sum / acf0
         }
-        acf[0] = 1f
         
         val minLag = (fps * minStepTimeS).toInt()
         val maxLag = minOf((fps * maxStepTimeS).toInt(), n - 1)
         if (minLag >= maxLag) return 0f
         
+        // Debug ACF values (first call only to avoid spam)
+        if (periodicityDebugCount < 1) {
+            Log.d(TAG, "=== PERIODICITY ACF DEBUG ===")
+            Log.d(TAG, "  ACF[0] (energy): ${String.format("%.4f", acf0)}")
+            Log.d(TAG, "  ACF normalized[0]: ${String.format("%.4f", acf[0])}")
+            Log.d(TAG, "  ACF normalized[10]: ${String.format("%.4f", acf.getOrElse(10) { 0f })}")
+            Log.d(TAG, "  ACF normalized[20]: ${String.format("%.4f", acf.getOrElse(20) { 0f })}")
+            Log.d(TAG, "  ACF normalized[30]: ${String.format("%.4f", acf.getOrElse(30) { 0f })}")
+            Log.d(TAG, "  minLag: $minLag, maxLag: $maxLag")
+            periodicityDebugCount++
+        }
+        
         val search = acf.slice(minLag..maxLag)
+        val maxInSearch = search.maxOrNull() ?: 0f
         val peaks = findPeaks(search.toFloatArray(), 1, 0.05f)
         
-        return if (peaks.isNotEmpty()) {
+        val result = if (peaks.isNotEmpty()) {
             search[peaks[0]].coerceIn(0f, 1f)
         } else {
-            (search.maxOrNull() ?: 0f).coerceIn(0f, 1f) * 0.5f
+            maxInSearch.coerceIn(0f, 1f) * 0.5f
         }
+        
+        // Debug final result (first call only)
+        if (periodicityDebugCount == 1) {
+            Log.d(TAG, "  Max in search: ${String.format("%.4f", maxInSearch)}")
+            Log.d(TAG, "  Peaks found: ${peaks.size}, result: ${String.format("%.4f", result)}")
+            periodicityDebugCount++
+        }
+        
+        return result
     }
     
     private fun evaluateStepSignalQuality(
@@ -768,7 +897,14 @@ class FeatureExtractor(
             candidates.maxByOrNull { it.value.second.peakCount }!!.key
         }
         
-        Log.d(TAG, "Step signal: ${selected.value} selected (score=${candidates[selected]!!.second.finalScore})")
+        // Log all mode scores for debugging
+        Log.d(TAG, "=== STEP SIGNAL MODE SELECTION ===")
+        for ((mode, pair) in candidates) {
+            val q = pair.second
+            val marker = if (mode == selected) " [SELECTED]" else ""
+            Log.d(TAG, "  ${mode.value}: peaks=${q.peakCount}, periodicity=${String.format("%.3f", q.periodicityScore)}, " +
+                "coverage=${String.format("%.3f", q.confidenceCoverage)}, finalScore=${String.format("%.3f", q.finalScore)}$marker")
+        }
         
         return Triple(selected, candidates[selected]!!.first, modeScores)
     }
@@ -788,9 +924,48 @@ class FeatureExtractor(
         
         val peaks = findPeaks(signalClean, minDistance, minProminence)
         
-        return peaks.map { idx ->
+        // Peak snap: recenter each peak to local maximum within ±2 frames
+        // This neutralizes ±1 frame edge-case differences vs PC
+        val snappedPeaks = snapPeaksToLocalMax(peaks, signalClean, snapWindow = 2)
+        
+        
+        // Log if any peaks were snapped
+        if (peaks != snappedPeaks) {
+            Log.d(TAG, "Peak snap applied: $peaks -> $snappedPeaks")
+        } else {
+            Log.d(TAG, "Peak snap: no changes (peaks already at local max)")
+        }
+        
+        return snappedPeaks.map { idx ->
             StepEvent(frameIdx = idx, timeS = idx.toFloat() / fps)
         }
+    }
+    
+    /**
+     * Snap each peak to the true local maximum within ±window frames.
+     * Tie-break: leftmost index wins (deterministic, matches typical SciPy behavior).
+     * This helps achieve parity with PC when peaks differ by ±1 frame due to
+     * floating-point or edge-case differences in prominence calculation.
+     */
+    private fun snapPeaksToLocalMax(peaks: List<Int>, signal: FloatArray, snapWindow: Int): List<Int> {
+        if (peaks.isEmpty()) return peaks
+        
+        return peaks.map { peakIdx ->
+            val start = maxOf(0, peakIdx - snapWindow)
+            val end = minOf(signal.size - 1, peakIdx + snapWindow)
+            
+            // Find the index with maximum value in the window
+            // Tie-break: leftmost (first encountered)
+            var bestIdx = start
+            var bestVal = signal[start]
+            for (i in (start + 1)..end) {
+                if (signal[i] > bestVal) {  // Strict > means leftmost wins on tie
+                    bestVal = signal[i]
+                    bestIdx = i
+                }
+            }
+            bestIdx
+        }.distinct()  // Remove duplicates if multiple peaks snap to same index
     }
     
     private fun estimateStepPeriod(signal: FloatArray, fps: Float): Float {
@@ -827,23 +1002,64 @@ class FeatureExtractor(
     }
     
     private fun findPeaks(signal: FloatArray, minDistance: Int, minProminence: Float): List<Int> {
-        val peaks = mutableListOf<Int>()
-        
+        // Step 1: Find all local maxima
+        val localMaxima = mutableListOf<Int>()
         for (i in 1 until signal.size - 1) {
             if (signal[i] > signal[i - 1] && signal[i] > signal[i + 1]) {
-                val leftMin = (maxOf(0, i - minDistance) until i).minOfOrNull { signal[it] } ?: signal[i]
-                val rightMin = ((i + 1)..minOf(signal.size - 1, i + minDistance)).minOfOrNull { signal[it] } ?: signal[i]
-                val prominence = signal[i] - maxOf(leftMin, rightMin)
-                
-                if (prominence >= minProminence) {
-                    if (peaks.isEmpty() || i - peaks.last() >= minDistance) {
-                        peaks.add(i)
-                    }
+                localMaxima.add(i)
+            }
+        }
+        
+        if (localMaxima.isEmpty()) return emptyList()
+        
+        // Step 2: Compute prominence for each peak (scipy-style algorithm)
+        // For each peak, extend left/right until hitting a higher peak or edge
+        // Then find minimum within that range on each side
+        val prominences = FloatArray(localMaxima.size)
+        
+        for ((idx, peakIdx) in localMaxima.withIndex()) {
+            val peakHeight = signal[peakIdx]
+            
+            // Extend left until hitting higher peak or edge
+            var leftBound = peakIdx - 1
+            while (leftBound > 0 && signal[leftBound] < peakHeight) {
+                leftBound--
+            }
+            // Find minimum from leftBound to peak
+            var leftMin = signal[peakIdx]
+            for (j in leftBound until peakIdx) {
+                if (signal[j] < leftMin) leftMin = signal[j]
+            }
+            
+            // Extend right until hitting higher peak or edge
+            var rightBound = peakIdx + 1
+            while (rightBound < signal.size - 1 && signal[rightBound] < peakHeight) {
+                rightBound++
+            }
+            // Find minimum from peak to rightBound
+            var rightMin = signal[peakIdx]
+            for (j in (peakIdx + 1)..rightBound) {
+                if (signal[j] < rightMin) rightMin = signal[j]
+            }
+            
+            // Prominence = peak height - higher of the two bases
+            prominences[idx] = peakHeight - maxOf(leftMin, rightMin)
+        }
+        
+        // Step 3: Filter by prominence, then by distance
+        val filteredPeaks = mutableListOf<Int>()
+        for ((idx, peakIdx) in localMaxima.withIndex()) {
+            if (prominences[idx] >= minProminence) {
+                if (filteredPeaks.isEmpty() || peakIdx - filteredPeaks.last() >= minDistance) {
+                    filteredPeaks.add(peakIdx)
+                } else if (prominences[idx] > prominences[localMaxima.indexOf(filteredPeaks.last())]) {
+                    // If this peak has higher prominence, replace the last one
+                    filteredPeaks[filteredPeaks.size - 1] = peakIdx
                 }
             }
         }
         
-        return peaks
+        return filteredPeaks
     }
     
     // =========================================================================
@@ -897,9 +1113,10 @@ class FeatureExtractor(
             }
             
             // Check 1: Valid frame percentage
-            val validFrames = (start..end).count { signals.isValid[it] }
-            val totalFrames = end - start + 1
-            val validPct = validFrames.toFloat() / totalFrames
+            // Use exclusive range [start, end) to match PC's Python slicing
+            val validFrames = (start until end).count { signals.isValid[it] }
+            val totalFrames = end - start
+            val validPct = if (totalFrames > 0) validFrames.toFloat() / totalFrames else 0f
             
             if (validPct < validFramePct) {
                 return@map stride.copy(
@@ -923,9 +1140,9 @@ class FeatureExtractor(
                 )
             }
             
-            // Check 3: Knee ROM
-            val kneeLeftSlice = signals.kneeAngleLeft.slice(start..end).filter { !it.isNaN() }
-            val kneeRightSlice = signals.kneeAngleRight.slice(start..end).filter { !it.isNaN() }
+            // Check 3: Knee ROM (exclusive range to match PC)
+            val kneeLeftSlice = signals.kneeAngleLeft.slice(start until end).filter { !it.isNaN() }
+            val kneeRightSlice = signals.kneeAngleRight.slice(start until end).filter { !it.isNaN() }
             
             if (kneeLeftSlice.size < 5 || kneeRightSlice.size < 5) {
                 return@map stride.copy(
@@ -962,7 +1179,7 @@ class FeatureExtractor(
             
             val timingScore = maxOf(0f, 1f - stepTimeDev / stepTimeTolerance)
             
-            val interAnkleSegment = signals.interAnkleDist.slice(start..end).filter { !it.isNaN() }
+            val interAnkleSegment = signals.interAnkleDist.slice(start until end).filter { !it.isNaN() }
             val signalQuality = computeSignalQualityScore(interAnkleSegment)
             
             val qualityScore = (
@@ -971,6 +1188,13 @@ class FeatureExtractor(
                 0.20f * romMargin.coerceIn(0f, 1f) +
                 0.40f * signalQuality
             )
+            
+            // Debug logging for quality score breakdown
+            Log.d(TAG, "  Stride [${start}..${end}] quality breakdown: " +
+                "validPct=${String.format("%.4f", validPct)}, " +
+                "timingScore=${String.format("%.4f", timingScore)}, " +
+                "romMargin=${String.format("%.4f", romMargin.coerceIn(0f, 1f))}, " +
+                "signalQuality=${String.format("%.4f", signalQuality)} -> total=${String.format("%.4f", qualityScore)}")
             
             stride.copy(
                 isValid = true,
@@ -1025,21 +1249,34 @@ class FeatureExtractor(
         
         return if (useRobustExtrema && values.size >= 10) {
             val sorted = values.sorted()
-            val loIdx = (values.size * extremaPercentileLo / 100).toInt().coerceIn(0, values.size - 1)
-            val hiIdx = (values.size * extremaPercentileHi / 100).toInt().coerceIn(0, values.size - 1)
-            sorted[hiIdx] - sorted[loIdx]
+            // Use linear interpolation like numpy's np.percentile()
+            val pLo = percentile(sorted, extremaPercentileLo)
+            val pHi = percentile(sorted, extremaPercentileHi)
+            pHi - pLo
         } else {
             (values.maxOrNull() ?: 0f) - (values.minOrNull() ?: 0f)
         }
+    }
+    
+    // Helper to match numpy's percentile with linear interpolation
+    private fun percentile(sortedValues: List<Float>, p: Float): Float {
+        if (sortedValues.isEmpty()) return 0f
+        if (sortedValues.size == 1) return sortedValues[0]
+        
+        val n = sortedValues.size
+        val idx = (n - 1) * p / 100f
+        val lower = idx.toInt().coerceIn(0, n - 2)
+        val upper = lower + 1
+        val fraction = idx - lower
+        
+        return sortedValues[lower] + fraction * (sortedValues[upper] - sortedValues[lower])
     }
     
     private fun computeMaxAngle(values: List<Float>): Float {
         if (values.isEmpty()) return 0f
         
         return if (useRobustExtrema && values.size >= 10) {
-            val sorted = values.sorted()
-            val hiIdx = (values.size * extremaPercentileHi / 100).toInt().coerceIn(0, values.size - 1)
-            sorted[hiIdx]
+            percentile(values.sorted(), extremaPercentileHi)
         } else {
             values.maxOrNull() ?: 0f
         }
@@ -1078,12 +1315,19 @@ class FeatureExtractor(
         var bestPairIndices = listOf<Int>()
         var bestPairReason = ""
         
+        // Log all consecutive pair scores for debugging
+        Log.d(TAG, "=== CONSECUTIVE PAIR SCORES ===")
+        
         for (run in runs) {
             if (run.size >= 2) {
                 for (j in 0 until run.size - 1) {
                     val (idx1, s1) = run[j]
                     val (idx2, s2) = run[j + 1]
                     val pairScore = s1.qualityScore + s2.qualityScore
+                    
+                    Log.d(TAG, "  Pair [$idx1, $idx2]: score=${String.format("%.4f", pairScore)} " +
+                        "(q1=${String.format("%.4f", s1.qualityScore)}, q2=${String.format("%.4f", s2.qualityScore)}) " +
+                        "frames [${s1.startFrame}..${s1.endFrame}] + [${s2.startFrame}..${s2.endFrame}]")
                     
                     if (pairScore > bestPairScore) {
                         bestPairScore = pairScore
@@ -1096,6 +1340,7 @@ class FeatureExtractor(
         }
         
         if (bestPair != null) {
+            Log.d(TAG, "  Best: [$bestPairIndices] score=$bestPairScore")
             return Triple(bestPair, bestPairReason, bestPairIndices)
         }
         
@@ -1126,7 +1371,20 @@ class FeatureExtractor(
         
         val (selectedStrides, selectionReason, selectedIndices) = select2InnerCycles(validStrides)
         
+        // Log stride selection details
+        Log.d(TAG, "=== STRIDE SELECTION ===")
+        Log.d(TAG, "Total strides: ${validStrides.size}, Valid: ${validStrides.count { it.isValid }}")
+        validStrides.forEachIndexed { idx, s ->
+            val marker = if (selectedIndices.contains(idx)) " [SELECTED]" else ""
+            Log.d(TAG, "  Stride $idx: valid=${s.isValid}, frames=${s.startFrame}-${s.endFrame}, " +
+                "quality=${String.format("%.2f", s.qualityScore)}, " +
+                "kneeL=${String.format("%.1f", s.kneeRomLeft)}°, kneeR=${String.format("%.1f", s.kneeRomRight)}°" +
+                "${s.invalidReason?.let { ", reason=$it" } ?: ""}$marker")
+        }
+        Log.d(TAG, "Selection: $selectionReason, indices=$selectedIndices")
+        
         if (selectedStrides.size < 2) {
+            Log.w(TAG, "Not enough valid strides selected!")
             return Triple(GaitFeatures.empty(), "", emptyList())
         }
         
@@ -1187,10 +1445,10 @@ class FeatureExtractor(
         val kneeLeftMax = selectedStrides.map { it.kneeMaxLeft }.average().toFloat()
         val kneeRightMax = selectedStrides.map { it.kneeMaxRight }.average().toFloat()
         
-        // Stride amplitude (max inter-ankle in stride / body width)
+        // Stride amplitude (max inter-ankle in stride / body width, exclusive range to match PC)
         val maxInterAnkleValues = mutableListOf<Float>()
         for (s in selectedStrides) {
-            val segment = signals.interAnkleDist.slice(s.startFrame..minOf(s.endFrame, signals.interAnkleDist.size - 1))
+            val segment = signals.interAnkleDist.slice(s.startFrame until minOf(s.endFrame, signals.interAnkleDist.size))
                 .filter { !it.isNaN() }
             if (segment.isNotEmpty()) {
                 maxInterAnkleValues.add(segment.maxOrNull() ?: 0f)
@@ -1200,15 +1458,16 @@ class FeatureExtractor(
             maxInterAnkleValues.average().toFloat() / (bodyWidth + 1e-8f)
         } else 0f
         
-        // Inter-ankle CV (within stride windows)
+        // Inter-ankle CV (within stride windows, exclusive range to match PC)
         val interAnkleValues = mutableListOf<Float>()
         for (s in selectedStrides) {
-            val segment = signals.interAnkleDist.slice(s.startFrame..minOf(s.endFrame, signals.interAnkleDist.size - 1))
+            val segment = signals.interAnkleDist.slice(s.startFrame until minOf(s.endFrame, signals.interAnkleDist.size))
                 .filter { !it.isNaN() }
             interAnkleValues.addAll(segment)
         }
-        val interAnkleCv = if (interAnkleValues.isNotEmpty() && interAnkleValues.average() > 0) {
-            interAnkleValues.std() / interAnkleValues.average().toFloat()
+        // Use epsilon like PC for numerical stability
+        val interAnkleCv = if (interAnkleValues.isNotEmpty()) {
+            interAnkleValues.std() / (interAnkleValues.average().toFloat() + 1e-8f)
         } else 0f
         
         // LDJ (within stride windows)
@@ -1220,13 +1479,13 @@ class FeatureExtractor(
             val start = s.startFrame
             val end = minOf(s.endFrame, signals.kneeAngleLeft.size - 1)
             
-            val ldjL = computeLDJ(signals.kneeAngleLeft.slice(start..end), poseSeq.fps)
-            val ldjR = computeLDJ(signals.kneeAngleRight.slice(start..end), poseSeq.fps)
+            val ldjL = computeLDJ(signals.kneeAngleLeft.slice(start until end), poseSeq.fps)
+            val ldjR = computeLDJ(signals.kneeAngleRight.slice(start until end), poseSeq.fps)
             
             if (!ldjL.isNaN() && ldjL > 0) ldjKneeLeftValues.add(ldjL)
             if (!ldjR.isNaN() && ldjR > 0) ldjKneeRightValues.add(ldjR)
             
-            val trunkSlice = signals.trunkAngle.slice(start..end)
+            val trunkSlice = signals.trunkAngle.slice(start until end)
             val ldjH = computeLDJ(trunkSlice, poseSeq.fps)
             if (!ldjH.isNaN() && ldjH > 0) ldjHipValues.add(ldjH)
         }
@@ -1235,10 +1494,10 @@ class FeatureExtractor(
         val ldjKneeRight = if (ldjKneeRightValues.isNotEmpty()) ldjKneeRightValues.average().toFloat() else 0f
         val ldjHip = if (ldjHipValues.isNotEmpty()) ldjHipValues.average().toFloat() else 0f
         
-        // Trunk lean std (within stride windows)
+        // Trunk lean std (within stride windows, exclusive range to match PC)
         val trunkValues = mutableListOf<Float>()
         for (s in selectedStrides) {
-            val segment = signals.trunkAngle.slice(s.startFrame..minOf(s.endFrame, signals.trunkAngle.size - 1))
+            val segment = signals.trunkAngle.slice(s.startFrame until minOf(s.endFrame, signals.trunkAngle.size))
                 .filter { !it.isNaN() }
             trunkValues.addAll(segment)
         }
@@ -1293,15 +1552,15 @@ class FeatureExtractor(
     
     private fun computeLDJ(signal: List<Float>, fps: Float): Float {
         val valid = signal.filter { !it.isNaN() }
-        if (valid.size < 3) return Float.NaN
+        if (valid.size < 3) return 0f  // Match PC: return 0, not NaN
         
-        val dt = 1f / fps
+        val dt = if (fps > 0) 1f / fps else 0.033f  // Add fallback like PC
         
         val velocity = (1 until valid.size).map { (valid[it] - valid[it - 1]) / dt }
-        if (velocity.size < 2) return Float.NaN
+        if (velocity.size < 2) return 0f  // Match PC
         
         val accel = (1 until velocity.size).map { (velocity[it] - velocity[it - 1]) / dt }
-        if (accel.isEmpty()) return Float.NaN
+        if (accel.isEmpty()) return 0f  // Match PC
         
         val ldj = sqrt(accel.map { it * it }.average().toFloat())
         return ldj
@@ -1344,7 +1603,8 @@ class FeatureExtractor(
 private fun List<Float>.std(): Float {
     if (size < 2) return 0f
     val mean = average().toFloat()
-    val variance = sumOf { ((it - mean) * (it - mean)).toDouble() } / (size - 1)
+    // Use population std (divide by n) to match numpy's default np.std()
+    val variance = sumOf { ((it - mean) * (it - mean)).toDouble() } / size
     return sqrt(variance).toFloat()
 }
 

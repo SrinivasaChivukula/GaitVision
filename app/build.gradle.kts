@@ -72,7 +72,8 @@ dependencies {
     implementation("com.github.PhilJay:MPAndroidChart:3.1.0")
 
     // MediaPipe Tasks for pose detection (replaced MLKit for PC pipeline parity)
-    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    // UPGRADED from 0.10.14 to fix "non-square landmark projection" bug that caused ~0.1% Y-offset
+    implementation("com.google.mediapipe:tasks-vision:0.10.18")
 
     implementation("androidx.core:core-ktx:1.7.0")
 

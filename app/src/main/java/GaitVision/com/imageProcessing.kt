@@ -46,8 +46,17 @@ import GaitVision.com.gait.QualityFlag
 
 /**
  * Convert YUV_420_888 Image (from MediaCodec) to ARGB Bitmap.
- * Uses JPEG as intermediate - this leverages Android's native (hardware-accelerated) 
- * YUV handling which is much faster than pure Kotlin pixel manipulation.
+ * 
+ * LOSSLESS direct YUV→RGB conversion to match PC's cv2.VideoCapture behavior.
+ * 
+ * Previously used JPEG as intermediate (quality=90) which introduced lossy compression
+ * artifacts that caused ~0.1% landmark position drift vs PC. This direct conversion
+ * eliminates that source of non-parity.
+ * 
+ * Uses standard BT.601 YUV→RGB formula (same as OpenCV's COLOR_YUV2RGB_NV21):
+ *   R = Y + 1.370705 * (V - 128)
+ *   G = Y - 0.698001 * (V - 128) - 0.337633 * (U - 128)
+ *   B = Y + 1.732446 * (U - 128)
  */
 private fun imageToBitmap(image: Image): Bitmap {
     val width = image.width
@@ -57,49 +66,51 @@ private fun imageToBitmap(image: Image): Bitmap {
     val uPlane = image.planes[1]
     val vPlane = image.planes[2]
     
-    val yBuffer = yPlane.buffer
-    val uBuffer = uPlane.buffer
-    val vBuffer = vPlane.buffer
+    val yBuffer = yPlane.buffer.duplicate()
+    val uBuffer = uPlane.buffer.duplicate()
+    val vBuffer = vPlane.buffer.duplicate()
     
     val yRowStride = yPlane.rowStride
     val uvRowStride = uPlane.rowStride
     val uvPixelStride = uPlane.pixelStride
     
-    // Create NV21 byte array (Y plane + interleaved VU)
-    val nv21 = ByteArray(width * height * 3 / 2)
+    // Create output pixel array
+    val pixels = IntArray(width * height)
     
-    // Copy Y plane, handling row stride
-    var pos = 0
+    // Direct YUV→RGB conversion (no JPEG lossy step)
     for (row in 0 until height) {
-        yBuffer.position(row * yRowStride)
-        yBuffer.get(nv21, pos, width)
-        pos += width
-    }
-    
-    // Copy UV planes interleaved as VU (for NV21)
-    val uvHeight = height / 2
-    val uvWidth = width / 2
-    for (row in 0 until uvHeight) {
-        for (col in 0 until uvWidth) {
-            val uvIndex = row * uvRowStride + col * uvPixelStride
+        for (col in 0 until width) {
+            // Y value
+            val yIndex = row * yRowStride + col
+            val y = (yBuffer.get(yIndex).toInt() and 0xFF)
             
-            vBuffer.position(uvIndex)
-            uBuffer.position(uvIndex)
+            // UV values (subsampled 2x2)
+            val uvRow = row / 2
+            val uvCol = col / 2
+            val uvIndex = uvRow * uvRowStride + uvCol * uvPixelStride
             
-            nv21[pos++] = vBuffer.get()
-            nv21[pos++] = uBuffer.get()
+            val u = (uBuffer.get(uvIndex).toInt() and 0xFF) - 128
+            val v = (vBuffer.get(uvIndex).toInt() and 0xFF) - 128
+            
+            // BT.601 YUV→RGB (matches OpenCV's COLOR_YUV2RGB behavior)
+            var r = (y + 1.370705 * v).toInt()
+            var g = (y - 0.698001 * v - 0.337633 * u).toInt()
+            var b = (y + 1.732446 * u).toInt()
+            
+            // Clamp to 0-255
+            r = r.coerceIn(0, 255)
+            g = g.coerceIn(0, 255)
+            b = b.coerceIn(0, 255)
+            
+            // Pack as ARGB
+            pixels[row * width + col] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
     }
     
-    // Use Android's native JPEG encoding/decoding (hardware accelerated)
-    val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
-    val out = java.io.ByteArrayOutputStream()
-    yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 90, out)
-    val imageBytes = out.toByteArray()
-    
-    // Return mutable bitmap for wireframe drawing
-    val options = BitmapFactory.Options().apply { inMutable = true }
-    return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
+    // Create mutable bitmap for wireframe drawing
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+    return bitmap
 }
 
 /**
@@ -157,13 +168,17 @@ var detectedFps: Float = 30f
  */
 fun initializeMediaPipeBackend(context: Context) {
     if (mediaPipeBackend == null) {
+        // Use CPU if forceCpuInference is true (for parity validation with PC)
+        val useGpu = !forceCpuInference
         mediaPipeBackend = MediaPipePoseBackend(
             context = context,
             minDetectionConfidence = 0.40f,  // OPTIMAL_CONFIG
             minTrackingConfidence = 0.61f,   // OPTIMAL_CONFIG
-            minPresenceConfidence = 0.5f
+            minPresenceConfidence = 0.5f,
+            useGpu = useGpu
         )
-        Log.d("ImageProcessing", "MediaPipe backend initialized with OPTIMAL_CONFIG")
+        val delegateType = if (useGpu) "GPU" else "CPU (parity mode)"
+        Log.d("ImageProcessing", "MediaPipe backend initialized with OPTIMAL_CONFIG, delegate: $delegateType")
     }
 }
 
@@ -256,15 +271,17 @@ fun processFrameWithMediaPipe(
 ): PoseFrame? {
     val backend = mediaPipeBackend ?: return null
     
-    // Downscale to 720p for faster CLAHE + MediaPipe processing
-    // Normalized coords (0-1) returned by MediaPipe work at any resolution
+    // Only downscale if CLAHE is enabled (downscaling was for CLAHE performance)
+    // Without CLAHE, process at full resolution for maximum accuracy
     var t0 = System.currentTimeMillis()
-    val scaledBitmap = if (bitmap.width > PROCESSING_WIDTH || bitmap.height > PROCESSING_HEIGHT) {
+    val scaledBitmap = if (applyClahe && (bitmap.width > PROCESSING_WIDTH || bitmap.height > PROCESSING_HEIGHT)) {
         Bitmap.createScaledBitmap(bitmap, PROCESSING_WIDTH, PROCESSING_HEIGHT, true)
     } else {
         bitmap
     }
-    totalDownscaleTimeMs += System.currentTimeMillis() - t0
+    if (applyClahe) {
+        totalDownscaleTimeMs += System.currentTimeMillis() - t0
+    }
     
     // Optionally apply CLAHE contrast enhancement (mirrors PC _apply_clahe)
     t0 = System.currentTimeMillis()

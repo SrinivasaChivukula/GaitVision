@@ -43,6 +43,7 @@ import GaitVision.com.extractionDiagnostics
 import GaitVision.com.scoringResult
 import GaitVision.com.extractedSignals
 import GaitVision.com.extractedStrides
+import GaitVision.com.selectedStrideIndices
 import GaitVision.com.stepSignalMode
 
 class DashboardActivity : AppCompatActivity() {
@@ -100,6 +101,7 @@ class DashboardActivity : AppCompatActivity() {
         scoringResult = null
         extractedSignals = null
         extractedStrides = null
+        selectedStrideIndices = null
         stepSignalMode = null
     }
 
