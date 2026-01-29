@@ -253,8 +253,51 @@ data class Signals(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
         other as Signals
-        return timestamps.contentEquals(other.timestamps)
+        return timestamps.contentEquals(other.timestamps) &&
+               frameIndices.contentEquals(other.frameIndices) &&
+               isValid.contentEquals(other.isValid) &&
+               interAnkleDist.contentEquals(other.interAnkleDist) &&
+               kneeAngleLeft.contentEquals(other.kneeAngleLeft) &&
+               kneeAngleRight.contentEquals(other.kneeAngleRight) &&
+               trunkAngle.contentEquals(other.trunkAngle) &&
+               ankleAngleLeft.contentEquals(other.ankleAngleLeft) &&
+               ankleAngleRight.contentEquals(other.ankleAngleRight) &&
+               hipAngleLeft.contentEquals(other.hipAngleLeft) &&
+               hipAngleRight.contentEquals(other.hipAngleRight) &&
+               strideAngle.contentEquals(other.strideAngle) &&
+               ankleLeftX.contentEquals(other.ankleLeftX) &&
+               ankleRightX.contentEquals(other.ankleRightX) &&
+               ankleLeftY.contentEquals(other.ankleLeftY) &&
+               ankleRightY.contentEquals(other.ankleRightY) &&
+               hipLeftY.contentEquals(other.hipLeftY) &&
+               hipRightY.contentEquals(other.hipRightY) &&
+               ankleLeftVy.contentEquals(other.ankleLeftVy) &&
+               ankleRightVy.contentEquals(other.ankleRightVy) &&
+               hipAvgVy.contentEquals(other.hipAvgVy)
     }
 
-    override fun hashCode(): Int = timestamps.contentHashCode()
+    override fun hashCode(): Int {
+        var result = timestamps.contentHashCode()
+        result = 31 * result + frameIndices.contentHashCode()
+        result = 31 * result + isValid.contentHashCode()
+        result = 31 * result + interAnkleDist.contentHashCode()
+        result = 31 * result + kneeAngleLeft.contentHashCode()
+        result = 31 * result + kneeAngleRight.contentHashCode()
+        result = 31 * result + trunkAngle.contentHashCode()
+        result = 31 * result + ankleAngleLeft.contentHashCode()
+        result = 31 * result + ankleAngleRight.contentHashCode()
+        result = 31 * result + hipAngleLeft.contentHashCode()
+        result = 31 * result + hipAngleRight.contentHashCode()
+        result = 31 * result + strideAngle.contentHashCode()
+        result = 31 * result + ankleLeftX.contentHashCode()
+        result = 31 * result + ankleRightX.contentHashCode()
+        result = 31 * result + ankleLeftY.contentHashCode()
+        result = 31 * result + ankleRightY.contentHashCode()
+        result = 31 * result + hipLeftY.contentHashCode()
+        result = 31 * result + hipRightY.contentHashCode()
+        result = 31 * result + ankleLeftVy.contentHashCode()
+        result = 31 * result + ankleRightVy.contentHashCode()
+        result = 31 * result + hipAvgVy.contentHashCode()
+        return result
+    }
 }

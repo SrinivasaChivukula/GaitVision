@@ -15,6 +15,7 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
 import android.util.Log
+import android.view.Surface
 import android.view.View
 import android.view.View.GONE
 import android.view.View.VISIBLE
@@ -251,6 +252,104 @@ private suspend fun hideProgressUI(activity: AppCompatActivity) {
         activity.findViewById<ProgressBar>(R.id.splittingBar).visibility = GONE
         activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = GONE
     }
+}
+
+/**
+ * Holds mutable state for video encoding across frames.
+ */
+private class EncoderState(
+    val encoder: MediaCodec,
+    val mediaMuxer: MediaMuxer,
+    val inputSurface: Surface,
+    val bufferInfo: MediaCodec.BufferInfo = MediaCodec.BufferInfo(),
+    val frameDurationUs: Long
+) {
+    var trackIndex: Int = -1
+    var muxerStarted: Boolean = false
+    
+    /**
+     * Write a processed bitmap to the encoder and drain output to muxer.
+     */
+    fun encodeFrame(bitmap: Bitmap, frameIndex: Int) {
+        // Draw to encoder surface
+        val canvas = inputSurface.lockCanvas(null)
+        canvas.drawBitmap(bitmap, 0f, 0f, null)
+        inputSurface.unlockCanvasAndPost(canvas)
+        
+        // Drain encoder output
+        drainEncoder(frameIndex)
+    }
+    
+    /**
+     * Drain pending encoder output to muxer.
+     */
+    fun drainEncoder(frameIndex: Int, timeout: Long = 1000) {
+        while (true) {
+            val outputId = encoder.dequeueOutputBuffer(bufferInfo, timeout)
+            when {
+                outputId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    if (!muxerStarted) {
+                        trackIndex = mediaMuxer.addTrack(encoder.outputFormat)
+                        mediaMuxer.setOrientationHint(0)
+                        mediaMuxer.start()
+                        muxerStarted = true
+                    }
+                }
+                outputId >= 0 -> {
+                    val outputBuffer = encoder.getOutputBuffer(outputId) ?: break
+                    if (muxerStarted) {
+                        bufferInfo.presentationTimeUs = frameIndex * frameDurationUs
+                        mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+                    }
+                    encoder.releaseOutputBuffer(outputId, false)
+                }
+                else -> break
+            }
+        }
+    }
+    
+    /**
+     * Signal end of stream and flush remaining frames.
+     */
+    fun finishEncoding() {
+        encoder.signalEndOfInputStream()
+        // Drain with longer timeout for final frames
+        while (true) {
+            val outputId = encoder.dequeueOutputBuffer(bufferInfo, 10000)
+            if (outputId >= 0) {
+                val outputBuffer = encoder.getOutputBuffer(outputId) ?: break
+                if (muxerStarted) {
+                    mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+                }
+                encoder.releaseOutputBuffer(outputId, false)
+            } else {
+                break
+            }
+        }
+    }
+    
+    /**
+     * Release all encoder resources.
+     */
+    fun release() {
+        encoder.stop()
+        encoder.release()
+        mediaMuxer.stop()
+        mediaMuxer.release()
+    }
+}
+
+/**
+ * Process a single frame: pose detection, wireframe drawing, store pose data.
+ * Returns the modified bitmap ready for encoding.
+ */
+private fun processFrame(frame: Bitmap, frameIndex: Int): Bitmap {
+    val poseFrame = processFrameWithMediaPipe(frame, frameIndex)
+    val modifiedBitmap = drawOnBitmapMediaPipe(frame, poseFrame)
+    if (poseFrame != null) {
+        poseFrames.add(poseFrame)
+    }
+    return modifiedBitmap
 }
 
 // Timing accumulators for CLAHE vs pure MediaPipe (for diagnostics)
@@ -495,21 +594,12 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     }
 
     val frameDurationUs = 1000000L / fps.toLong()
-    var trackIndex = -1
-    var muxerStarted = false
-    val encoderBufferInfo = MediaCodec.BufferInfo()
+    val encoderState = EncoderState(encoder, mediaMuxer, inputSurface, frameDurationUs = frameDurationUs)
     val decoderBufferInfo = MediaCodec.BufferInfo()
     var frameIndex = 0
     var inputDone = false
     var outputDone = false
     val startTime = System.currentTimeMillis()
-
-    // Timing accumulators for performance analysis
-    var totalYuvTime = 0L
-    var totalClaheTime = 0L
-    var totalMediaPipeTime = 0L
-    var totalDrawTime = 0L
-    var totalEncodeTime = 0L
     
     Log.d(TAG, "FAST STREAMING: Processing ~$totalFrames frames with MediaCodec")
     Log.d(TAG, "GPU delegate: ${mediaPipeBackend?.isUsingGpu() ?: false}, CLAHE: $enableCLAHE")
@@ -551,81 +641,32 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
                     outputDone = true
                     decoder.releaseOutputBuffer(outputBufferId, false)
                 } else {
-                    // Get the decoded frame as Image
                     try {
                         val image = decoder.getOutputImage(outputBufferId)
-                        if (image == null) {
-                            Log.w(TAG, "getOutputImage returned null for frame $frameIndex")
-                            decoder.releaseOutputBuffer(outputBufferId, false)
-                            continue
-                        }
-                        
-                        // TIMING: YUV -> RGB conversion
-                        var t0 = System.currentTimeMillis()
-                        val frame: Bitmap
-                        try {
-                            frame = imageToBitmap(image)
-                        } finally {
-                            image.close()
-                        }
-                        totalYuvTime += System.currentTimeMillis() - t0
-                        
-                        // TIMING: MediaPipe (includes CLAHE if enabled)
-                        t0 = System.currentTimeMillis()
-                        val poseFrame = processFrameWithMediaPipe(frame, frameIndex)
-                        totalMediaPipeTime += System.currentTimeMillis() - t0
-                        
-                        // TIMING: Draw wireframe
-                        t0 = System.currentTimeMillis()
-                        val modifiedBitmap = drawOnBitmapMediaPipe(frame, poseFrame)
-                        totalDrawTime += System.currentTimeMillis() - t0
-                        
-                        // Store pose data (small - just keypoints)
-                        if (poseFrame != null) {
-                            poseFrames.add(poseFrame)
-                        }
-
-                        // TIMING: Encode frame to video
-                        t0 = System.currentTimeMillis()
-                        val canvas = inputSurface.lockCanvas(null)
-                        canvas.drawBitmap(modifiedBitmap, 0f, 0f, null)
-                        inputSurface.unlockCanvasAndPost(canvas)
-
-                        // Drain encoder
-                        while (true) {
-                            val encOutputId = encoder.dequeueOutputBuffer(encoderBufferInfo, 1000)
-                            when {
-                                encOutputId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                                    if (!muxerStarted) {
-                                        trackIndex = mediaMuxer.addTrack(encoder.outputFormat)
-                                        mediaMuxer.start()
-                                        muxerStarted = true
-                                    }
-                                }
-                                encOutputId >= 0 -> {
-                                    val outputBuffer = encoder.getOutputBuffer(encOutputId) ?: break
-                                    if (muxerStarted) {
-                                        encoderBufferInfo.presentationTimeUs = frameIndex * frameDurationUs
-                                        mediaMuxer.writeSampleData(trackIndex, outputBuffer, encoderBufferInfo)
-                                    }
-                                    encoder.releaseOutputBuffer(encOutputId, false)
-                                }
-                                else -> break
+                        if (image != null) {
+                            // Convert YUV to Bitmap
+                            val frame: Bitmap
+                            try {
+                                frame = imageToBitmap(image)
+                            } finally {
+                                image.close()
                             }
-                        }
-                        totalEncodeTime += System.currentTimeMillis() - t0
-                        
-                        // Update progress
-                        frameIndex++
-                        val progress = ((frameIndex.toFloat() / totalFrames) * 100).toInt().coerceIn(0, 100)
-                        withContext(Dispatchers.Main) {
-                            activity.findViewById<ProgressBar>(R.id.splittingBar).progress = progress
-                            activity.findViewById<TextView>(R.id.splittingProgressValue).text = " $progress%"
+                            
+                            // Process frame (pose detection + wireframe) and encode
+                            val modifiedBitmap = processFrame(frame, frameIndex)
+                            encoderState.encodeFrame(modifiedBitmap, frameIndex)
+                            
+                            // Update progress
+                            frameIndex++
+                            val progress = ((frameIndex.toFloat() / totalFrames) * 100).toInt().coerceIn(0, 100)
+                            withContext(Dispatchers.Main) {
+                                activity.findViewById<ProgressBar>(R.id.splittingBar).progress = progress
+                                activity.findViewById<TextView>(R.id.splittingProgressValue).text = " $progress%"
+                            }
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Error processing frame $frameIndex: ${e.message}")
                     }
-                    
                     decoder.releaseOutputBuffer(outputBufferId, false)
                 }
             }
@@ -634,56 +675,13 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     
     val elapsedSec = (System.currentTimeMillis() - startTime) / 1000.0
     Log.d(TAG, "Processed $frameIndex frames in ${elapsedSec}s (${String.format("%.1f", frameIndex/elapsedSec)} fps)")
-    
-    // === TIMING BREAKDOWN ===
-    if (frameIndex > 0) {
-        Log.d(TAG, "=== TIMING BREAKDOWN (avg per frame) ===")
-        Log.d(TAG, "  YUV→RGB:      ${totalYuvTime / frameIndex}ms")
-        if (mediaPipeFrameCount > 0) {
-            Log.d(TAG, "  Downscale:    ${totalDownscaleTimeMs / mediaPipeFrameCount}ms (to 720p)")
-            if (enableCLAHE) {
-                Log.d(TAG, "  CLAHE:        ${totalClaheTimeMs / mediaPipeFrameCount}ms (at 720p)")
-            }
-            Log.d(TAG, "  MediaPipe:    ${totalPureMediaPipeTimeMs / mediaPipeFrameCount}ms (pure inference)")
-        } else {
-            Log.d(TAG, "  MediaPipe:    ${totalMediaPipeTime / frameIndex}ms")
-        }
-        Log.d(TAG, "  Draw:         ${totalDrawTime / frameIndex}ms")
-        Log.d(TAG, "  Encode:       ${totalEncodeTime / frameIndex}ms")
-        Log.d(TAG, "  Total:        ${(totalYuvTime + totalMediaPipeTime + totalDrawTime + totalEncodeTime) / frameIndex}ms")
-        Log.d(TAG, "=== END TIMING ===")
-    }
-    
-    // Reset timing counters
-    totalClaheTimeMs = 0L
-    totalPureMediaPipeTimeMs = 0L
-    totalDownscaleTimeMs = 0L
-    mediaPipeFrameCount = 0
 
-    // Flush remaining encoder output
-    encoder.signalEndOfInputStream()
-    while (true) {
-        val outputBufferId = encoder.dequeueOutputBuffer(encoderBufferInfo, 10000)
-        if (outputBufferId >= 0) {
-            val outputBuffer = encoder.getOutputBuffer(outputBufferId) ?: break
-            if (muxerStarted) {
-                encoderBufferInfo.presentationTimeUs = frameIndex.toLong() * frameDurationUs
-                mediaMuxer.writeSampleData(trackIndex, outputBuffer, encoderBufferInfo)
-            }
-            encoder.releaseOutputBuffer(outputBufferId, false)
-        } else {
-            break
-        }
-    }
-
-    // Release all resources
+    // Finish encoding and release resources
+    encoderState.finishEncoding()
+    encoderState.release()
     decoder.stop()
     decoder.release()
     extractor.release()
-    encoder.stop()
-    encoder.release()
-    mediaMuxer.stop()
-    mediaMuxer.release()
     releaseMediaPipeBackend()
 
     // Hide progress UI
@@ -745,21 +743,20 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
     
     initializeMediaPipeBackend(context)
 
+    // Set up encoder using shared helper
     val mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-    val format = MediaFormat.createVideoFormat("video/avc", width, height)
-    format.setInteger(MediaFormat.KEY_BIT_RATE, 1000000)
-    format.setInteger(MediaFormat.KEY_FRAME_RATE, detectedFps.toInt())
-    format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-    format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-
+    val format = MediaFormat.createVideoFormat("video/avc", width, height).apply {
+        setInteger(MediaFormat.KEY_BIT_RATE, 1000000)
+        setInteger(MediaFormat.KEY_FRAME_RATE, detectedFps.toInt())
+        setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+    }
     val encoder = MediaCodec.createEncoderByType("video/avc")
     encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
     val inputSurface = encoder.createInputSurface()
     encoder.start()
-
-    var trackIndex = -1
-    var muxerStarted = false
-    val bufferInfo = MediaCodec.BufferInfo()
+    
+    val encoderState = EncoderState(encoder, mediaMuxer, inputSurface, frameDurationUs = frameIntervalUs)
     var frameIndex = 0
     var currTimeUs = 0L
 
@@ -767,39 +764,8 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
         val frame = retriever.getFrameAtTime(currTimeUs, MediaMetadataRetriever.OPTION_CLOSEST)
         
         if (frame != null) {
-            val poseFrame = processFrameWithMediaPipe(frame, frameIndex)
-            val modifiedBitmap = drawOnBitmapMediaPipe(frame, poseFrame)
-            
-            if (poseFrame != null) {
-                poseFrames.add(poseFrame)
-            }
-
-            val canvas = inputSurface.lockCanvas(null)
-            canvas.drawBitmap(modifiedBitmap, 0f, 0f, null)
-            inputSurface.unlockCanvasAndPost(canvas)
-
-            while (true) {
-                val outputBufferId = encoder.dequeueOutputBuffer(bufferInfo, 10000)
-                when {
-                    outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        if (!muxerStarted) {
-                            trackIndex = mediaMuxer.addTrack(encoder.outputFormat)
-                            mediaMuxer.setOrientationHint(0)
-                            mediaMuxer.start()
-                            muxerStarted = true
-                        }
-                    }
-                    outputBufferId >= 0 -> {
-                        val outputBuffer = encoder.getOutputBuffer(outputBufferId) ?: continue
-                        if (muxerStarted) {
-                            bufferInfo.presentationTimeUs = frameIndex * frameIntervalUs
-                            mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
-                        }
-                        encoder.releaseOutputBuffer(outputBufferId, false)
-                    }
-                    outputBufferId == MediaCodec.INFO_TRY_AGAIN_LATER -> break
-                }
-            }
+            val modifiedBitmap = processFrame(frame, frameIndex)
+            encoderState.encodeFrame(modifiedBitmap, frameIndex)
             frameIndex++
         }
         
@@ -812,24 +778,8 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
         currTimeUs += frameIntervalUs
     }
 
-    encoder.signalEndOfInputStream()
-    while (true) {
-        val outputBufferId = encoder.dequeueOutputBuffer(bufferInfo, 10000)
-        if (outputBufferId >= 0) {
-            val outputBuffer = encoder.getOutputBuffer(outputBufferId) ?: break
-            if (muxerStarted) {
-                mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
-            }
-            encoder.releaseOutputBuffer(outputBufferId, false)
-        } else {
-            break
-        }
-    }
-
-    encoder.stop()
-    encoder.release()
-    mediaMuxer.stop()
-    mediaMuxer.release()
+    encoderState.finishEncoding()
+    encoderState.release()
     retriever.release()
     releaseMediaPipeBackend()
 
