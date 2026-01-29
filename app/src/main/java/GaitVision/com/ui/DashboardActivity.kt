@@ -25,24 +25,18 @@ import GaitVision.com.R
 import GaitVision.com.galleryUri
 import GaitVision.com.editedUri
 import GaitVision.com.frameList
-import GaitVision.com.leftAnkleAngles
-import GaitVision.com.rightAnkleAngles
-import GaitVision.com.leftKneeAngles
-import GaitVision.com.rightKneeAngles
-import GaitVision.com.leftHipAngles
-import GaitVision.com.rightHipAngles
-import GaitVision.com.torsoAngles
-import GaitVision.com.strideAngles
-import GaitVision.com.leftKneeMinAngles
-import GaitVision.com.leftKneeMaxAngles
-import GaitVision.com.rightKneeMinAngles
-import GaitVision.com.rightKneeMaxAngles
-import GaitVision.com.torsoMinAngles
-import GaitVision.com.torsoMaxAngles
 import GaitVision.com.participantId
 import GaitVision.com.participantHeight
 import GaitVision.com.currentPatientId
 import GaitVision.com.currentVideoId
+import GaitVision.com.poseFrames
+import GaitVision.com.extractedFeatures
+import GaitVision.com.extractionDiagnostics
+import GaitVision.com.scoringResult
+import GaitVision.com.extractedSignals
+import GaitVision.com.extractedStrides
+import GaitVision.com.selectedStrideIndices
+import GaitVision.com.stepSignalMode
 
 class DashboardActivity : AppCompatActivity() {
 
@@ -79,24 +73,20 @@ class DashboardActivity : AppCompatActivity() {
         galleryUri = null
         editedUri = null
         frameList.clear()
-        leftAnkleAngles.clear()
-        rightAnkleAngles.clear()
-        leftKneeAngles.clear()
-        rightKneeAngles.clear()
-        leftHipAngles.clear()
-        rightHipAngles.clear()
-        torsoAngles.clear()
-        strideAngles.clear()
-        leftKneeMinAngles.clear()
-        leftKneeMaxAngles.clear()
-        rightKneeMinAngles.clear()
-        rightKneeMaxAngles.clear()
-        torsoMinAngles.clear()
-        torsoMaxAngles.clear()
         participantId = 0
         participantHeight = 0
         currentPatientId = null
         currentVideoId = null
+        
+        // Clear PC pipeline data
+        poseFrames.clear()
+        extractedFeatures = null
+        extractionDiagnostics = null
+        scoringResult = null
+        extractedSignals = null
+        extractedStrides = null
+        selectedStrideIndices = null
+        stepSignalMode = null
     }
 
     private fun initializeViews() {

@@ -30,32 +30,16 @@ import GaitVision.com.data.repository.AngleDataRepository
 import GaitVision.com.data.repository.PatientRepository
 import GaitVision.com.data.repository.VideoRepository
 import GaitVision.com.ProcVidEmpty
-import GaitVision.com.FindLocalMin
-import GaitVision.com.FindLocalMax
-import GaitVision.com.calcStrideLength
-import GaitVision.com.calcStrideLengthAvg
 import GaitVision.com.galleryUri
 import GaitVision.com.editedUri
 import GaitVision.com.frameList
-import GaitVision.com.leftAnkleAngles
-import GaitVision.com.rightAnkleAngles
-import GaitVision.com.leftKneeAngles
-import GaitVision.com.rightKneeAngles
-import GaitVision.com.leftHipAngles
-import GaitVision.com.rightHipAngles
-import GaitVision.com.torsoAngles
-import GaitVision.com.strideAngles
-import GaitVision.com.leftKneeMinAngles
-import GaitVision.com.leftKneeMaxAngles
-import GaitVision.com.rightKneeMinAngles
-import GaitVision.com.rightKneeMaxAngles
-import GaitVision.com.torsoMinAngles
-import GaitVision.com.torsoMaxAngles
+import GaitVision.com.extractedSignals
 import GaitVision.com.participantId
 import GaitVision.com.participantHeight
 import GaitVision.com.currentPatientId
 import GaitVision.com.currentVideoId
 import GaitVision.com.videoLength
+import GaitVision.com.extractedFeatures
 import java.io.File
 
 class AnalysisActivity : AppCompatActivity() {
@@ -155,8 +139,8 @@ class AnalysisActivity : AppCompatActivity() {
                 currentPatientId = patient.participantId
                 Log.d("AnalysisActivity", "Patient ID: ${patient.participantId}")
 
-                // Process the video
-                val outputFilePath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)}/edited_video.mp4"
+                // Process the video (use app cache dir to avoid permission issues)
+                val outputFilePath = "${cacheDir.absolutePath}/edited_video.mp4"
                 val outputFile = File(outputFilePath)
                 if (outputFile.exists()) {
                     outputFile.delete()
@@ -165,9 +149,6 @@ class AnalysisActivity : AppCompatActivity() {
                 editedUri = withContext(Dispatchers.IO) {
                     ProcVidEmpty(this@AnalysisActivity, outputFilePath, this@AnalysisActivity)
                 }
-
-                // Calculate local min/max for gait score
-                calculateLocalMinMax()
 
                 // Save video and angle data to database
                 saveToDatabase(database, outputFilePath)
@@ -196,19 +177,6 @@ class AnalysisActivity : AppCompatActivity() {
         }
     }
 
-    private fun calculateLocalMinMax() {
-        leftKneeMinAngles = FindLocalMin(leftKneeAngles).toMutableList()
-        leftKneeMaxAngles = FindLocalMax(leftKneeAngles).toMutableList()
-        rightKneeMinAngles = FindLocalMin(rightKneeAngles).toMutableList()
-        rightKneeMaxAngles = FindLocalMax(rightKneeAngles).toMutableList()
-        torsoMinAngles = FindLocalMin(torsoAngles).toMutableList()
-        torsoMaxAngles = FindLocalMax(torsoAngles).toMutableList()
-
-        Log.d("AnalysisActivity", "Left Knee Min: $leftKneeMinAngles, Max: $leftKneeMaxAngles")
-        Log.d("AnalysisActivity", "Right Knee Min: $rightKneeMinAngles, Max: $rightKneeMaxAngles")
-        Log.d("AnalysisActivity", "Stride Length Avg: ${calcStrideLengthAvg(participantHeight.toFloat())}")
-    }
-
     private suspend fun saveToDatabase(database: AppDatabase, outputPath: String) {
         if (currentPatientId == null || editedUri == null) return
 
@@ -219,7 +187,8 @@ class AnalysisActivity : AppCompatActivity() {
             withContext(Dispatchers.IO) {
                 val originalPath = galleryUri?.path ?: galleryUri?.toString() ?: ""
                 val editedPath = editedUri?.path ?: editedUri?.toString() ?: ""
-                val strideLengthAvg = calcStrideLengthAvg(participantHeight.toFloat()).toDouble()
+                // Use PC pipeline stride length if available
+                val strideLengthAvg = extractedFeatures?.stride_length_norm?.toDouble() ?: 0.0
 
                 val video = Video(
                     patientId = currentPatientId!!,
@@ -232,33 +201,27 @@ class AnalysisActivity : AppCompatActivity() {
                 val videoId = videoRepository.insertVideo(video)
                 currentVideoId = videoId
 
-                // Save angle data for each frame
-                val maxFrames = maxOf(
-                    leftKneeAngles.size,
-                    rightKneeAngles.size,
-                    leftHipAngles.size,
-                    rightHipAngles.size,
-                    leftAnkleAngles.size,
-                    rightAnkleAngles.size,
-                    torsoAngles.size,
-                    strideAngles.size
-                )
-
+                // Save angle data for each frame from Signals
+                val signals = extractedSignals
                 val angleDataList = mutableListOf<AngleData>()
-                for (frameNumber in 0 until maxFrames) {
-                    val angleData = AngleData(
-                        videoId = videoId,
-                        frameNumber = frameNumber,
-                        leftAnkleAngle = leftAnkleAngles.getOrNull(frameNumber),
-                        rightAnkleAngle = rightAnkleAngles.getOrNull(frameNumber),
-                        leftKneeAngle = leftKneeAngles.getOrNull(frameNumber),
-                        rightKneeAngle = rightKneeAngles.getOrNull(frameNumber),
-                        leftHipAngle = leftHipAngles.getOrNull(frameNumber),
-                        rightHipAngle = rightHipAngles.getOrNull(frameNumber),
-                        torsoAngle = torsoAngles.getOrNull(frameNumber),
-                        strideAngle = strideAngles.getOrNull(frameNumber)
-                    )
-                    angleDataList.add(angleData)
+                
+                if (signals != null) {
+                    val maxFrames = signals.kneeAngleLeft.size
+                    for (frameNumber in 0 until maxFrames) {
+                        val angleData = AngleData(
+                            videoId = videoId,
+                            frameNumber = frameNumber,
+                            leftAnkleAngle = signals.ankleAngleLeft.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            rightAnkleAngle = signals.ankleAngleRight.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            leftKneeAngle = signals.kneeAngleLeft.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            rightKneeAngle = signals.kneeAngleRight.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            leftHipAngle = signals.hipAngleLeft.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            rightHipAngle = signals.hipAngleRight.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            torsoAngle = signals.trunkAngle.getOrNull(frameNumber)?.takeIf { !it.isNaN() },
+                            strideAngle = signals.strideAngle.getOrNull(frameNumber)?.takeIf { !it.isNaN() }
+                        )
+                        angleDataList.add(angleData)
+                    }
                 }
 
                 if (angleDataList.isNotEmpty()) {
@@ -337,6 +300,8 @@ class AnalysisActivity : AppCompatActivity() {
     }
 
     private fun updateAngleDisplay(angleType: String, index: Int) {
+        val signals = extractedSignals
+        
         when (angleType) {
             "ALL ANGLES" -> {
                 findViewById<TextView>(R.id.tvAnkleAngles).visibility = View.VISIBLE
@@ -344,50 +309,55 @@ class AnalysisActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.tvHipAngles).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tvTorsoAngle).visibility = View.VISIBLE
 
-                findViewById<TextView>(R.id.tvAnkleAngles).text = buildAngleString("Ankle", leftAnkleAngles, rightAnkleAngles, index)
-                findViewById<TextView>(R.id.tvKneeAngles).text = buildAngleString("Knee", leftKneeAngles, rightKneeAngles, index)
-                findViewById<TextView>(R.id.tvHipAngles).text = buildAngleString("Hip", leftHipAngles, rightHipAngles, index)
-                findViewById<TextView>(R.id.tvTorsoAngle).text = if (index < torsoAngles.size) {
-                    "Torso: ${String.format("%.1f", torsoAngles[index])}°"
-                } else "Torso: --"
+                findViewById<TextView>(R.id.tvAnkleAngles).text = buildAngleString("Ankle", signals?.ankleAngleLeft, signals?.ankleAngleRight, index)
+                findViewById<TextView>(R.id.tvKneeAngles).text = buildAngleString("Knee", signals?.kneeAngleLeft, signals?.kneeAngleRight, index)
+                findViewById<TextView>(R.id.tvHipAngles).text = buildAngleString("Hip", signals?.hipAngleLeft, signals?.hipAngleRight, index)
+                findViewById<TextView>(R.id.tvTorsoAngle).text = formatSingleAngle("Torso", signals?.trunkAngle, index)
             }
             "HIP ANGLES" -> {
                 findViewById<TextView>(R.id.tvAnkleAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvKneeAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvHipAngles).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tvTorsoAngle).visibility = View.GONE
-                findViewById<TextView>(R.id.tvHipAngles).text = buildAngleString("Hip", leftHipAngles, rightHipAngles, index)
+                findViewById<TextView>(R.id.tvHipAngles).text = buildAngleString("Hip", signals?.hipAngleLeft, signals?.hipAngleRight, index)
             }
             "KNEE ANGLES" -> {
                 findViewById<TextView>(R.id.tvAnkleAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvKneeAngles).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tvHipAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvTorsoAngle).visibility = View.GONE
-                findViewById<TextView>(R.id.tvKneeAngles).text = buildAngleString("Knee", leftKneeAngles, rightKneeAngles, index)
+                findViewById<TextView>(R.id.tvKneeAngles).text = buildAngleString("Knee", signals?.kneeAngleLeft, signals?.kneeAngleRight, index)
             }
             "ANKLE ANGLES" -> {
                 findViewById<TextView>(R.id.tvAnkleAngles).visibility = View.VISIBLE
                 findViewById<TextView>(R.id.tvKneeAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvHipAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvTorsoAngle).visibility = View.GONE
-                findViewById<TextView>(R.id.tvAnkleAngles).text = buildAngleString("Ankle", leftAnkleAngles, rightAnkleAngles, index)
+                findViewById<TextView>(R.id.tvAnkleAngles).text = buildAngleString("Ankle", signals?.ankleAngleLeft, signals?.ankleAngleRight, index)
             }
             "TORSO ANGLE" -> {
                 findViewById<TextView>(R.id.tvAnkleAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvKneeAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvHipAngles).visibility = View.GONE
                 findViewById<TextView>(R.id.tvTorsoAngle).visibility = View.VISIBLE
-                findViewById<TextView>(R.id.tvTorsoAngle).text = if (index < torsoAngles.size) {
-                    "Torso: ${String.format("%.1f", torsoAngles[index])}°"
-                } else "Torso: --"
+                findViewById<TextView>(R.id.tvTorsoAngle).text = formatSingleAngle("Torso", signals?.trunkAngle, index)
             }
         }
     }
 
-    private fun buildAngleString(name: String, leftAngles: List<Float>, rightAngles: List<Float>, index: Int): String {
-        val left = if (index < leftAngles.size) String.format("%.1f", leftAngles[index]) else "--"
-        val right = if (index < rightAngles.size) String.format("%.1f", rightAngles[index]) else "--"
+    private fun buildAngleString(name: String, leftAngles: FloatArray?, rightAngles: FloatArray?, index: Int): String {
+        val leftVal = leftAngles?.getOrNull(index)
+        val rightVal = rightAngles?.getOrNull(index)
+        val left = if (leftVal != null && !leftVal.isNaN()) String.format("%.1f", leftVal) else "--"
+        val right = if (rightVal != null && !rightVal.isNaN()) String.format("%.1f", rightVal) else "--"
         return "L $name: $left°\nR $name: $right°"
+    }
+    
+    private fun formatSingleAngle(name: String, angles: FloatArray?, index: Int): String {
+        val value = angles?.getOrNull(index)
+        return if (value != null && !value.isNaN()) {
+            "$name: ${String.format("%.1f", value)}°"
+        } else "$name: --"
     }
 
     override fun onPause() {

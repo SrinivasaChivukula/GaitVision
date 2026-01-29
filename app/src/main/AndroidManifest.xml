@@ -60,6 +60,13 @@
             android:theme="@style/Theme.GaitVision"
             android:parentActivityName="GaitVision.com.ui.AnalysisActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <activity android:name="GaitVision.com.ui.SignalsDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.ResultsActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
         <!-- Patient Management Activities -->
         <activity
             android:name="GaitVision.com.ui.PatientListActivity"

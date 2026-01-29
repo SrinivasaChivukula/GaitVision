@@ -48,7 +48,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Gait Score Card -->
+            <!-- Primary Gait Score Card -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -87,7 +87,130 @@
                         android:layout_height="wrap_content"
                         android:text="Calculating..."
                         android:textColor="@color/white"
-                        android:textSize="16sp" />
+                        android:textSize="16sp"
+                        android:gravity="center" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- All 3 Model Scores Card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardBackgroundColor="#1A1A1A">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Model Scores"
+                        android:textColor="#999999"
+                        android:textSize="12sp"
+                        android:letterSpacing="0.1"
+                        android:layout_marginBottom="12dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="3">
+
+                        <!-- AE Score -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Autoencoder"
+                                android:textColor="#9C27B0"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvAeScore"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="--"
+                                android:textColor="@color/white"
+                                android:textSize="28sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                        <!-- Ridge Score -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Ridge"
+                                android:textColor="#2196F3"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvRidgeScore"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="--"
+                                android:textColor="@color/white"
+                                android:textSize="28sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                        <!-- PCA Score -->
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="PCA"
+                                android:textColor="#4CAF50"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvPcaScore"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="--"
+                                android:textColor="@color/white"
+                                android:textSize="28sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="100 = Healthy, 0 = Impaired"
+                        android:textColor="#666666"
+                        android:textSize="10sp"
+                        android:gravity="center"
+                        android:layout_marginTop="8dp" />
 
                 </LinearLayout>
 
@@ -160,6 +283,19 @@
             </androidx.cardview.widget.CardView>
 
             <!-- Action Buttons -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSignalsDashboard"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="View Signal Dashboard"
+                android:textSize="16sp"
+                android:textColor="@color/white"
+                android:backgroundTint="#FF9800"
+                app:iconTint="@color/white"
+                app:iconPadding="12dp"
+                app:iconGravity="start"
+                android:layout_marginBottom="12dp" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnExportCsv"
                 android:layout_width="match_parent"

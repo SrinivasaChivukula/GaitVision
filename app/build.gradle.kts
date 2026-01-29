@@ -44,7 +44,13 @@ android {
     dataBinding{
         enable = true
     }
-
+    
+    // Ensure native libraries from MediaPipe are properly packaged
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 
@@ -65,24 +71,9 @@ dependencies {
     // Graph dependency
     implementation("com.github.PhilJay:MPAndroidChart:3.1.0")
 
-    /*
-        Type: Base SDK
-        Usage: Used for applications that are more time sensitive. Excels in speed over accuracy.
-            - Processing live stream.
-        Cons:
-            - Lower accuracy
-     */
-    implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
-    /*
-        Type: Accurate SDK
-        Usage: Used for applications that need accuracy. Excels in accuracy over speed.
-            - Processing stored video.
-        Cons:
-            - Slower processing speed
-            - More CPU usage
-            - More power and battery required
-     */
-    implementation("com.google.mlkit:pose-detection-accurate:18.0.0-beta5")
+    // MediaPipe Tasks for pose detection (replaced MLKit for PC pipeline parity)
+    // UPGRADED from 0.10.14 to fix "non-square landmark projection" bug that caused ~0.1% Y-offset
+    implementation("com.google.mediapipe:tasks-vision:0.10.18")
 
     implementation("androidx.core:core-ktx:1.7.0")
 
