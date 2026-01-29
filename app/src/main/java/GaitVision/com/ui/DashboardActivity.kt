@@ -25,14 +25,6 @@ import GaitVision.com.R
 import GaitVision.com.galleryUri
 import GaitVision.com.editedUri
 import GaitVision.com.frameList
-import GaitVision.com.leftAnkleAngles
-import GaitVision.com.rightAnkleAngles
-import GaitVision.com.leftKneeAngles
-import GaitVision.com.rightKneeAngles
-import GaitVision.com.leftHipAngles
-import GaitVision.com.rightHipAngles
-import GaitVision.com.torsoAngles
-import GaitVision.com.strideAngles
 import GaitVision.com.participantId
 import GaitVision.com.participantHeight
 import GaitVision.com.currentPatientId
@@ -81,14 +73,6 @@ class DashboardActivity : AppCompatActivity() {
         galleryUri = null
         editedUri = null
         frameList.clear()
-        leftAnkleAngles.clear()
-        rightAnkleAngles.clear()
-        leftKneeAngles.clear()
-        rightKneeAngles.clear()
-        leftHipAngles.clear()
-        rightHipAngles.clear()
-        torsoAngles.clear()
-        strideAngles.clear()
         participantId = 0
         participantHeight = 0
         currentPatientId = null

@@ -24,13 +24,7 @@ import GaitVision.com.data.GaitScore
 import GaitVision.com.data.repository.GaitScoreRepository
 import GaitVision.com.plotLineGraph
 import GaitVision.com.editedUri
-import GaitVision.com.leftAnkleAngles
-import GaitVision.com.rightAnkleAngles
-import GaitVision.com.leftKneeAngles
-import GaitVision.com.rightKneeAngles
-import GaitVision.com.leftHipAngles
-import GaitVision.com.rightHipAngles
-import GaitVision.com.torsoAngles
+import GaitVision.com.extractedSignals
 import GaitVision.com.participantId
 import GaitVision.com.currentPatientId
 import GaitVision.com.currentVideoId
@@ -227,18 +221,35 @@ class ResultsActivity : AppCompatActivity() {
     }
 
     private fun setupCharts() {
-        // Plot all charts
-        if (leftKneeAngles.isNotEmpty() || rightKneeAngles.isNotEmpty()) {
-            plotLineGraph(kneeChart, leftKneeAngles, rightKneeAngles, "Left Knee", "Right Knee")
+        val signals = extractedSignals
+        if (signals == null) {
+            Log.w("ResultsActivity", "No signals available for charts")
+            showChart("KNEE")
+            return
         }
-        if (leftAnkleAngles.isNotEmpty() || rightAnkleAngles.isNotEmpty()) {
-            plotLineGraph(ankleChart, leftAnkleAngles, rightAnkleAngles, "Left Ankle", "Right Ankle")
+        
+        // Convert FloatArrays to Lists, filtering NaN values
+        // Note: plotLineGraph uses index/30 for x-axis, so we keep all valid values
+        val kneeLeft = signals.kneeAngleLeft.filter { !it.isNaN() }
+        val kneeRight = signals.kneeAngleRight.filter { !it.isNaN() }
+        val ankleLeft = signals.ankleAngleLeft.filter { !it.isNaN() }
+        val ankleRight = signals.ankleAngleRight.filter { !it.isNaN() }
+        val hipLeft = signals.hipAngleLeft.filter { !it.isNaN() }
+        val hipRight = signals.hipAngleRight.filter { !it.isNaN() }
+        val torso = signals.trunkAngle.filter { !it.isNaN() }
+        
+        // Plot all charts using Signals data
+        if (kneeLeft.isNotEmpty() || kneeRight.isNotEmpty()) {
+            plotLineGraph(kneeChart, kneeLeft, kneeRight, "Left Knee", "Right Knee")
         }
-        if (leftHipAngles.isNotEmpty() || rightHipAngles.isNotEmpty()) {
-            plotLineGraph(hipChart, leftHipAngles, rightHipAngles, "Left Hip", "Right Hip")
+        if (ankleLeft.isNotEmpty() || ankleRight.isNotEmpty()) {
+            plotLineGraph(ankleChart, ankleLeft, ankleRight, "Left Ankle", "Right Ankle")
         }
-        if (torsoAngles.isNotEmpty()) {
-            plotLineGraph(torsoChart, torsoAngles, torsoAngles, "Torso", "Torso")
+        if (hipLeft.isNotEmpty() || hipRight.isNotEmpty()) {
+            plotLineGraph(hipChart, hipLeft, hipRight, "Left Hip", "Right Hip")
+        }
+        if (torso.isNotEmpty()) {
+            plotLineGraph(torsoChart, torso, torso, "Torso", "Torso")
         }
 
         // Initially show knee chart
@@ -292,14 +303,21 @@ class ResultsActivity : AppCompatActivity() {
     }
 
     private fun exportCsvFiles() {
+        val signals = extractedSignals
+        if (signals == null) {
+            Toast.makeText(this, "No signal data to export", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Convert FloatArrays to Lists for export
         val fileData = listOf(
-            leftHipAngles,
-            rightHipAngles,
-            leftKneeAngles,
-            rightKneeAngles,
-            leftAnkleAngles,
-            rightAnkleAngles,
-            torsoAngles
+            signals.hipAngleLeft.toList(),
+            signals.hipAngleRight.toList(),
+            signals.kneeAngleLeft.toList(),
+            signals.kneeAngleRight.toList(),
+            signals.ankleAngleLeft.toList(),
+            signals.ankleAngleRight.toList(),
+            signals.trunkAngle.toList()
         )
 
         val angleNames = listOf(

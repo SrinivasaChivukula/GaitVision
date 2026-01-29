@@ -221,11 +221,18 @@ data class Signals(
     val frameIndices: IntArray,
     val isValid: BooleanArray,
     
-    // Core signals
+    // Core signals (used in feature extraction)
     val interAnkleDist: FloatArray,
     val kneeAngleLeft: FloatArray,
     val kneeAngleRight: FloatArray,
     val trunkAngle: FloatArray,
+    
+    // Visualization-only angles (for charts, not used in features)
+    val ankleAngleLeft: FloatArray,
+    val ankleAngleRight: FloatArray,
+    val hipAngleLeft: FloatArray,
+    val hipAngleRight: FloatArray,
+    val strideAngle: FloatArray,
     
     // Ankle positions
     val ankleLeftX: FloatArray,

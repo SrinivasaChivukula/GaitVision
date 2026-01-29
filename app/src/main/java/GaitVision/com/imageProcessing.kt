@@ -241,19 +241,6 @@ fun releaseMediaPipeBackend() {
     Log.d("ImageProcessing", "MediaPipe backend released")
 }
 
-/**
- * Smooth all angle data lists for chart display.
- */
-private fun smoothAllAngleData(windowSize: Int = 5) {
-    smoothDataUsingMovingAverage(rightKneeAngles, windowSize)
-    smoothDataUsingMovingAverage(leftKneeAngles, windowSize)
-    smoothDataUsingMovingAverage(rightHipAngles, windowSize)
-    smoothDataUsingMovingAverage(leftHipAngles, windowSize)
-    smoothDataUsingMovingAverage(rightAnkleAngles, windowSize)
-    smoothDataUsingMovingAverage(leftAnkleAngles, windowSize)
-    smoothDataUsingMovingAverage(torsoAngles, windowSize)
-    smoothDataUsingMovingAverage(strideAngles, windowSize)
-}
 
 /**
  * Hide progress UI elements after processing.
@@ -356,19 +343,12 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     val TAG = "ImageProcessing"
     
     // Clear all data
-    leftAnkleAngles.clear()
-    rightAnkleAngles.clear()
-    leftKneeAngles.clear()
-    rightKneeAngles.clear()
-    leftHipAngles.clear()
-    rightHipAngles.clear()
-    torsoAngles.clear()
-    strideAngles.clear()
     poseFrames.clear()
     frameList.clear()
     extractedFeatures = null
     extractionDiagnostics = null
     scoringResult = null
+    extractedSignals = null
     
     if (galleryUri == null) {
         Log.e(TAG, "No video URI provided")
@@ -709,9 +689,6 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     // Hide progress UI
     hideProgressUI(activity)
 
-    // Smooth angle data for charts
-    smoothAllAngleData()
-
     Log.d(TAG, "FAST STREAMING complete. Processed $frameIndex frames, ${poseFrames.size} poses detected")
     
     // Feature extraction (uses poseFrames which is small)
@@ -856,8 +833,6 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
     releaseMediaPipeBackend()
 
     hideProgressUI(activity)
-
-    smoothAllAngleData()
 
     extractGaitFeatures(context, width, height, frameIndex, activity)
 

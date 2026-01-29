@@ -304,10 +304,20 @@ class FeatureExtractor(
         val frameIndices = IntArray(n) { it }
         val isValid = BooleanArray(n) { false }
         
+        // Core signals (used in features)
         val interAnkleDist = FloatArray(n) { Float.NaN }
         val kneeAngleLeft = FloatArray(n) { Float.NaN }
         val kneeAngleRight = FloatArray(n) { Float.NaN }
         val trunkAngle = FloatArray(n) { Float.NaN }
+        
+        // Visualization-only angles (for charts)
+        val ankleAngleLeft = FloatArray(n) { Float.NaN }
+        val ankleAngleRight = FloatArray(n) { Float.NaN }
+        val hipAngleLeft = FloatArray(n) { Float.NaN }
+        val hipAngleRight = FloatArray(n) { Float.NaN }
+        val strideAngle = FloatArray(n) { Float.NaN }
+        
+        // Positions
         val ankleLeftX = FloatArray(n) { Float.NaN }
         val ankleRightX = FloatArray(n) { Float.NaN }
         val ankleLeftY = FloatArray(n) { Float.NaN }
@@ -330,15 +340,16 @@ class FeatureExtractor(
             
             val kp = frame.keypoints
             
+            // Positions
             ankleLeftX[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][0]
             ankleRightX[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][0]
             interAnkleDist[idx] = abs(kp[MediaPipePoseBackend.RIGHT_ANKLE][0] - kp[MediaPipePoseBackend.LEFT_ANKLE][0])
-            
             ankleLeftY[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][1]
             ankleRightY[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][1]
             hipLeftY[idx] = kp[MediaPipePoseBackend.LEFT_HIP][1]
             hipRightY[idx] = kp[MediaPipePoseBackend.RIGHT_HIP][1]
             
+            // Knee angles (hip-knee-ankle) - used in features
             kneeAngleLeft[idx] = computeAngle(
                 kp[MediaPipePoseBackend.LEFT_HIP],
                 kp[MediaPipePoseBackend.LEFT_KNEE],
@@ -350,6 +361,7 @@ class FeatureExtractor(
                 kp[MediaPipePoseBackend.RIGHT_ANKLE]
             )
             
+            // Trunk angle - used in features
             val midShoulder = floatArrayOf(
                 (kp[MediaPipePoseBackend.LEFT_SHOULDER][0] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][0]) / 2f,
                 (kp[MediaPipePoseBackend.LEFT_SHOULDER][1] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][1]) / 2f
@@ -359,6 +371,37 @@ class FeatureExtractor(
                 (kp[MediaPipePoseBackend.LEFT_HIP][1] + kp[MediaPipePoseBackend.RIGHT_HIP][1]) / 2f
             )
             trunkAngle[idx] = computeTrunkLean(midShoulder, midHip)
+            
+            // Ankle angles (foot-ankle-knee) - visualization only
+            ankleAngleLeft[idx] = computeAngle(
+                kp[MediaPipePoseBackend.LEFT_FOOT_INDEX],
+                kp[MediaPipePoseBackend.LEFT_ANKLE],
+                kp[MediaPipePoseBackend.LEFT_KNEE]
+            ) - 90f  // Offset like original: 0° = foot flat
+            ankleAngleRight[idx] = computeAngle(
+                kp[MediaPipePoseBackend.RIGHT_FOOT_INDEX],
+                kp[MediaPipePoseBackend.RIGHT_ANKLE],
+                kp[MediaPipePoseBackend.RIGHT_KNEE]
+            ) - 90f
+            
+            // Hip angles (knee-hip-shoulder) - visualization only
+            hipAngleLeft[idx] = 180f - computeAngle(
+                kp[MediaPipePoseBackend.LEFT_KNEE],
+                kp[MediaPipePoseBackend.LEFT_HIP],
+                kp[MediaPipePoseBackend.LEFT_SHOULDER]
+            )
+            hipAngleRight[idx] = 180f - computeAngle(
+                kp[MediaPipePoseBackend.RIGHT_KNEE],
+                kp[MediaPipePoseBackend.RIGHT_HIP],
+                kp[MediaPipePoseBackend.RIGHT_SHOULDER]
+            )
+            
+            // Stride angle (left heel - hip center - right heel) - visualization only
+            strideAngle[idx] = computeAngle(
+                kp[MediaPipePoseBackend.LEFT_HEEL],
+                midHip,
+                kp[MediaPipePoseBackend.RIGHT_HEEL]
+            )
         }
         
         return Signals(
@@ -369,6 +412,11 @@ class FeatureExtractor(
             kneeAngleLeft = kneeAngleLeft,
             kneeAngleRight = kneeAngleRight,
             trunkAngle = trunkAngle,
+            ankleAngleLeft = ankleAngleLeft,
+            ankleAngleRight = ankleAngleRight,
+            hipAngleLeft = hipAngleLeft,
+            hipAngleRight = hipAngleRight,
+            strideAngle = strideAngle,
             ankleLeftX = ankleLeftX,
             ankleRightX = ankleRightX,
             ankleLeftY = ankleLeftY,

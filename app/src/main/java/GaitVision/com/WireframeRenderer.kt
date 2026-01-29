@@ -3,25 +3,22 @@ package GaitVision.com
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.util.Log
 
 import GaitVision.com.mediapipe.MediaPipePoseBackend
 import GaitVision.com.mediapipe.PoseFrame
 
 /**
- * Renders skeleton wireframe overlay on video frames and calculates joint angles.
+ * Renders skeleton wireframe overlay on video frames.
  * 
- * Extracted from imageProcessing.kt for better organization.
- * Mutates global angle lists (leftAnkleAngles, rightAnkleAngles, etc.) as a side effect.
+ * Only draws the skeleton - angle calculations are now handled by FeatureExtractor
+ * and stored in Signals object for single source of truth.
  */
 
 /**
- * Draw skeleton overlay and calculate angles from MediaPipe pose frame.
+ * Draw skeleton overlay from MediaPipe pose frame.
  * 
  * MediaPipe returns normalized coordinates (0-1), which we convert to pixel
- * coordinates for drawing. Angle calculations use the same formulas as before.
- * 
- * SIDE EFFECTS: Adds calculated angles to global angle lists in globalVariables.kt
+ * coordinates for drawing.
  * 
  * @param bitmap Frame to draw on (modified in place)
  * @param poseFrame Pose detection result with normalized coordinates
@@ -35,7 +32,6 @@ fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
     val width = bitmap.width.toFloat()
     val height = bitmap.height.toFloat()
     val keypoints = poseFrame.keypoints
-    val confidences = poseFrame.confidences
     
     // Helper to get pixel coordinates from normalized keypoint
     fun getPixelCoords(landmarkIdx: Int): Pair<Float, Float> {
@@ -45,8 +41,6 @@ fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
     }
     
     // Get coordinates for all landmarks we need
-    val (leftShoulderX, leftShoulderY) = getPixelCoords(MediaPipePoseBackend.LEFT_SHOULDER)
-    val (rightShoulderX, rightShoulderY) = getPixelCoords(MediaPipePoseBackend.RIGHT_SHOULDER)
     val (leftHipX, leftHipY) = getPixelCoords(MediaPipePoseBackend.LEFT_HIP)
     val (rightHipX, rightHipY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HIP)
     val (leftKneeX, leftKneeY) = getPixelCoords(MediaPipePoseBackend.LEFT_KNEE)
@@ -57,74 +51,6 @@ fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
     val (rightHeelX, rightHeelY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HEEL)
     val (leftFootIndexX, leftFootIndexY) = getPixelCoords(MediaPipePoseBackend.LEFT_FOOT_INDEX)
     val (rightFootIndexX, rightFootIndexY) = getPixelCoords(MediaPipePoseBackend.RIGHT_FOOT_INDEX)
-    
-    // Angle Calculations (same formulas as before)
-    // Ankle Angles
-    val leftAnkleAngle = GetAnglesA(leftFootIndexX, leftFootIndexY, leftAnkleX, leftAnkleY, leftKneeX, leftKneeY)
-    if (!leftAnkleAngle.isNaN() && leftAnkleAngle < 70 && leftAnkleAngle > -25) {
-        leftAnkleAngles.add(leftAnkleAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "Left Ankle: $leftAnkleAngle")
-    }
-    
-    val rightAnkleAngle = GetAnglesA(rightFootIndexX, rightFootIndexY, rightAnkleX, rightAnkleY, rightKneeX, rightKneeY)
-    if (!rightAnkleAngle.isNaN() && rightAnkleAngle < 70 && rightAnkleAngle > -25) {
-        rightAnkleAngles.add(rightAnkleAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "Right Ankle: $rightAnkleAngle")
-    }
-
-    // Knee Angles
-    val leftKneeAngle = GetAngles(leftAnkleX, leftAnkleY, leftKneeX, leftKneeY, leftHipX, leftHipY)
-    if (!leftKneeAngle.isNaN()) {
-        leftKneeAngles.add(leftKneeAngle)
-    } else {
-        count++
-    }
-    
-    val rightKneeAngle = GetAngles(rightAnkleX, rightAnkleY, rightKneeX, rightKneeY, rightHipX, rightHipY)
-    if (!rightKneeAngle.isNaN()) {
-        rightKneeAngles.add(rightKneeAngle)
-    } else {
-        count++
-    }
-
-    // Hip Angles
-    val leftHipAngle = GetAngles(leftKneeX, leftKneeY, leftHipX, leftHipY, leftShoulderX, leftShoulderY)
-    if (!leftHipAngle.isNaN()) {
-        leftHipAngles.add(leftHipAngle)
-    } else {
-        count++
-    }
-    
-    val rightHipAngle = GetAngles(rightKneeX, rightKneeY, rightHipX, rightHipY, rightShoulderX, rightShoulderY)
-    if (!rightHipAngle.isNaN()) {
-        rightHipAngles.add(rightHipAngle)
-    } else {
-        count++
-    }
-
-    // Torso Angle
-    val torsoAngle = calcTorso(
-        (leftHipX + rightHipX) / 2, (leftHipY + rightHipY) / 2,
-        (rightShoulderX + leftShoulderX) / 2, (rightShoulderY + leftShoulderY) / 2
-    )
-    if (!torsoAngle.isNaN() && torsoAngle > -20 && torsoAngle < 20) {
-        torsoAngles.add(torsoAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "TorsoAngle: $torsoAngle")
-    }
-
-    // Stride angle
-    val strideAngle = calcStrideAngle(
-        leftHeelX, leftHeelY,
-        (leftHipX + rightHipX) / 2f, (leftHipY + rightHipY) / 2,
-        rightHeelX, rightHeelY
-    )
-    strideAngles.add(strideAngle)
 
     // Draw skeleton overlay
     val canvas = Canvas(bitmap)

@@ -28,16 +28,6 @@ var extractedStrides: List<Stride>? = null
 var selectedStrideIndices: List<Int>? = null  // Indices of the 2 strides used for features
 var stepSignalMode: String? = null
 
-//All angles list for use in application
-var leftAnkleAngles : MutableList<Float> = mutableListOf()
-var rightAnkleAngles : MutableList<Float> = mutableListOf()
-var leftKneeAngles : MutableList<Float> = mutableListOf()
-var rightKneeAngles : MutableList<Float> = mutableListOf()
-var leftHipAngles : MutableList<Float> = mutableListOf()
-var rightHipAngles : MutableList<Float> = mutableListOf()
-var torsoAngles : MutableList<Float> = mutableListOf()
-var strideAngles: MutableList<Float> = mutableListOf()
-
 //User input for ID and height
 var participantId: Int = 0
 var participantHeight: Int = 0
@@ -46,17 +36,14 @@ var participantHeight: Int = 0
 var currentPatientId: Int? = null
 var currentVideoId: Long? = null
 
-//Variable for counting angle faults
-var count: Int = 0;
-
 
 //Variable for keeping track of video length we processed on
 var videoLength: Long = 0
 
 // Video processing options (mirrors PC pipeline options)
 var enableCLAHE: Boolean = false  // CLAHE disabled - testing without for parity comparison
-var enableROIRetry: Boolean = false  // EXPERIMENTAL/OFF - ROI retry is non-functional, see reprocessWithRoiTracking docstring
+var enableROIRetry: Boolean = false  // EXPERIMENTAL/OFF - ROI retry non-functional in fast path (frameList always empty)
 var forceCpuInference: Boolean = true  // Force CPU inference for parity with PC (GPU can produce slight differences)
 
-// Debug options
-var enableVerboseLogging: Boolean = false  // Enable detailed per-frame logging (expensive, disable for production)
+// Debug/logging options
+var enableVerboseLogging: Boolean = false  // Toggle heavy per-frame logging in FeatureExtractor
