@@ -31,7 +31,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="GaitVision"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/white"
                 android:textSize="28sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -76,7 +76,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Search Patient"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/white"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -112,7 +112,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="New Patient"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/white"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -186,7 +186,7 @@
                 android:layout_height="52dp"
                 android:layout_weight="1"
                 android:background="@drawable/spinner_background"
-                android:textColor="#FFFFFF" />
+                android:textColor="@color/white" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -201,7 +201,7 @@
                 android:layout_height="52dp"
                 android:layout_weight="1"
                 android:background="@drawable/spinner_background"
-                android:textColor="#FFFFFF" />
+                android:textColor="@color/white" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -264,7 +264,7 @@
                 android:layout_weight="1"
                 android:text="Record"
                 android:textSize="16sp"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/white"
                 android:backgroundTint="#00000000"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 app:strokeColor="#4FC3F7"
@@ -283,7 +283,7 @@
                 android:layout_weight="1"
                 android:text="Select"
                 android:textSize="16sp"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/white"
                 android:backgroundTint="#00000000"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 app:strokeColor="#4FC3F7"
