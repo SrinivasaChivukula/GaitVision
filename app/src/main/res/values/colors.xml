@@ -3,6 +3,7 @@
     <!-- Base Colors -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="dark_gray">#FF323232</color>
     
     <!-- Modern Medical Theme - Deep Ocean & Teal -->
     <color name="primary_deep_blue">#FF1E3A8A</color>
