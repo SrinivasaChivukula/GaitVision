@@ -1,7 +1,6 @@
 package GaitVision.com.ui
 
 import android.app.AlertDialog
-import android.content.Context
 import android.content.Intent
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -19,14 +18,11 @@ import com.github.mikephil.charting.charts.LineChart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.support.common.FileUtil
 import GaitVision.com.R
 import GaitVision.com.data.AppDatabase
 import GaitVision.com.data.GaitScore
 import GaitVision.com.data.repository.GaitScoreRepository
 import GaitVision.com.plotLineGraph
-import GaitVision.com.calcStrideLengthAvg
 import GaitVision.com.editedUri
 import GaitVision.com.leftAnkleAngles
 import GaitVision.com.rightAnkleAngles
@@ -35,28 +31,24 @@ import GaitVision.com.rightKneeAngles
 import GaitVision.com.leftHipAngles
 import GaitVision.com.rightHipAngles
 import GaitVision.com.torsoAngles
-import GaitVision.com.leftKneeMinAngles
-import GaitVision.com.leftKneeMaxAngles
-import GaitVision.com.rightKneeMinAngles
-import GaitVision.com.rightKneeMaxAngles
-import GaitVision.com.torsoMinAngles
-import GaitVision.com.torsoMaxAngles
 import GaitVision.com.participantId
-import GaitVision.com.participantHeight
 import GaitVision.com.currentPatientId
 import GaitVision.com.currentVideoId
+import GaitVision.com.extractedFeatures
+import GaitVision.com.extractionDiagnostics
+import GaitVision.com.scoringResult
+import GaitVision.com.gait.GaitCsvExporter
+import GaitVision.com.galleryUri
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.math.roundToLong
-import kotlin.math.sqrt
 
 class ResultsActivity : AppCompatActivity() {
 
     private lateinit var tvGaitScore: TextView
     private lateinit var tvScoreLabel: TextView
+    private lateinit var tvAeScore: TextView
+    private lateinit var tvRidgeScore: TextView
+    private lateinit var tvPcaScore: TextView
     private lateinit var hipChart: LineChart
     private lateinit var kneeChart: LineChart
     private lateinit var ankleChart: LineChart
@@ -82,6 +74,9 @@ class ResultsActivity : AppCompatActivity() {
     private fun initializeViews() {
         tvGaitScore = findViewById(R.id.tvGaitScore)
         tvScoreLabel = findViewById(R.id.tvScoreLabel)
+        tvAeScore = findViewById(R.id.tvAeScore)
+        tvRidgeScore = findViewById(R.id.tvRidgeScore)
+        tvPcaScore = findViewById(R.id.tvPcaScore)
         hipChart = findViewById(R.id.lineChartHip)
         kneeChart = findViewById(R.id.lineChartKnee)
         ankleChart = findViewById(R.id.lineChartAnkle)
@@ -106,88 +101,81 @@ class ResultsActivity : AppCompatActivity() {
             exportCsvFiles()
         }
 
+        findViewById<Button>(R.id.btnSignalsDashboard).setOnClickListener {
+            val intent = Intent(this, SignalsDashboardActivity::class.java)
+            startActivity(intent)
+        }
+
         btnSelectGraph.setOnClickListener {
             showGraphPopup()
         }
     }
 
     private fun calculateGaitScore() {
-        try {
-            // Check if we have enough data
-            if (leftKneeMinAngles.isEmpty() || leftKneeMaxAngles.isEmpty() ||
-                rightKneeMinAngles.isEmpty() || rightKneeMaxAngles.isEmpty() ||
-                torsoMinAngles.isEmpty() || torsoMaxAngles.isEmpty()) {
-                
-                tvGaitScore.text = "--"
-                tvScoreLabel.text = "Insufficient data for score calculation"
-                return
-            }
-
-            // Prepare input data for the model
-            val inputData = floatArrayOf(
-                leftKneeMinAngles.average().toFloat(),
-                leftKneeMaxAngles.average().toFloat(),
-                rightKneeMinAngles.average().toFloat(),
-                rightKneeMaxAngles.average().toFloat(),
-                torsoMinAngles.average().toFloat(),
-                torsoMaxAngles.average().toFloat(),
-                calcStrideLengthAvg(participantHeight.toFloat() * 39.37F),
-                leftKneeMaxAngles.average().toFloat() - leftKneeMinAngles.average().toFloat(),
-                rightKneeMaxAngles.average().toFloat() - rightKneeMinAngles.average().toFloat()
-            )
-
-            // Load TFLite model and scalers
-            val tfliteModel = FileUtil.loadMappedFile(this, "encoder_model.tflite")
-            val interpreter = Interpreter(tfliteModel)
-            val scalerMean = loadFloatBinFile(this, "scaler_mean.bin")
-            val scalerScale = loadFloatBinFile(this, "scaler_scale.bin")
-            val cleanCentroid = loadNpyFloatArray(assets.open("clean_centroid.npy"))
-            val impairedCentroid = loadNpyFloatArray(assets.open("impaired_centroid.npy"))
-
-            // Apply scaling with minimum threshold
-            val minScaleValue = 1e-15f
-            val safeScalerScale = scalerScale.map { 
-                if (it < minScaleValue) minScaleValue else it 
-            }.toFloatArray()
-
-            val scaledInput = FloatArray(inputData.size) { i ->
-                (inputData[i] - scalerMean[i]) / safeScalerScale[i]
-            }
-
-            // Run inference
-            val output = Array(1) { FloatArray(2) }
-            val input = arrayOf(scaledInput)
-            interpreter.run(input, output)
-
-            // Calculate gait index
-            val distClean = euclideanDistance(output[0], cleanCentroid)
-            val distImpaired = euclideanDistance(output[0], impairedCentroid)
-            val gaitIndexUnscaled = 1 - (distClean / (distClean + distImpaired))
-            val gaitIndexScaled = gaitIndexUnscaled * 100
-
-            calculatedScore = gaitIndexScaled.roundToLong().toDouble()
-
-            // Update UI
+        // PC Pipeline ONLY - no legacy fallback
+        val pcFeatures = extractedFeatures
+        val pcScore = scoringResult
+        val diagnostics = extractionDiagnostics
+        
+        Log.d("ResultsActivity", "calculateGaitScore: features=${pcFeatures != null}, score=${pcScore != null}, diagnostics=${diagnostics != null}")
+        
+        // Check if PC pipeline succeeded
+        if (pcFeatures != null && pcScore != null && pcFeatures.valid_stride_count > 0) {
+            // SUCCESS: Use PC pipeline scores
+            calculatedScore = pcScore.getScoreForDatabase()
             tvGaitScore.text = calculatedScore.toLong().toString()
-            tvScoreLabel.text = getScoreLabel(calculatedScore)
-
-            // Color based on score
+            tvScoreLabel.text = "${getScoreLabel(calculatedScore)}\n(${pcFeatures.valid_stride_count} strides, ${String.format("%.1f", pcFeatures.cadence_spm)} spm)"
+            
+            // Display all 3 model scores
+            tvAeScore.text = if (!pcScore.aeScore.isNaN()) pcScore.aeScore.toLong().toString() else "--"
+            tvRidgeScore.text = if (!pcScore.ridgeScore.isNaN()) pcScore.ridgeScore.toLong().toString() else "--"
+            tvPcaScore.text = if (!pcScore.pcaScore.isNaN()) pcScore.pcaScore.toLong().toString() else "--"
+            
+            // Color individual scores
+            tvAeScore.setTextColor(getScoreColor(pcScore.aeScore))
+            tvRidgeScore.setTextColor(getScoreColor(pcScore.ridgeScore))
+            tvPcaScore.setTextColor(getScoreColor(pcScore.pcaScore))
+            
+            // Color primary score
             val scoreColor = when {
-                calculatedScore >= 80 -> "#4CAF50" // Green
-                calculatedScore >= 60 -> "#FF9800" // Orange
-                else -> "#F44336" // Red
+                calculatedScore >= 80 -> "#4CAF50"
+                calculatedScore >= 60 -> "#FF9800"
+                else -> "#F44336"
             }
             tvGaitScore.setTextColor(android.graphics.Color.parseColor(scoreColor))
-
-            Log.d("ResultsActivity", "Gait Score: $calculatedScore")
-
-            // Save to database
+            
+            Log.d("ResultsActivity", "PC pipeline SUCCESS - AE: ${pcScore.aeScore}, Ridge: ${pcScore.ridgeScore}, PCA: ${pcScore.pcaScore}")
+            
             saveGaitScoreToDatabase()
-
-        } catch (e: Exception) {
-            Log.e("ResultsActivity", "Error calculating gait score: ${e.message}", e)
+            
+        } else {
+            // FAILED: Show error with diagnostic info
             tvGaitScore.text = "--"
-            tvScoreLabel.text = "Error calculating score"
+            tvAeScore.text = "--"
+            tvRidgeScore.text = "--"
+            tvPcaScore.text = "--"
+            
+            val errorMsg = when {
+                pcFeatures == null && diagnostics != null -> 
+                    "Extraction failed: ${diagnostics.qualityFlag}\n${diagnostics.rejectionReasons.firstOrNull() ?: ""}"
+                pcFeatures == null -> 
+                    "Feature extraction not run"
+                pcFeatures.valid_stride_count == 0 -> 
+                    "No valid gait cycles detected"
+                pcScore == null -> 
+                    "Scoring failed to initialize"
+                else -> 
+                    "Unknown error"
+            }
+            
+            tvScoreLabel.text = errorMsg
+            tvGaitScore.setTextColor(android.graphics.Color.parseColor("#F44336"))
+            
+            Log.e("ResultsActivity", "PC pipeline FAILED: $errorMsg")
+            Log.e("ResultsActivity", "  pcFeatures=$pcFeatures, pcScore=$pcScore")
+            if (diagnostics != null) {
+                Log.e("ResultsActivity", "  diagnostics: flag=${diagnostics.qualityFlag}, reasons=${diagnostics.rejectionReasons}")
+            }
         }
     }
 
@@ -201,54 +189,40 @@ class ResultsActivity : AppCompatActivity() {
             else -> "Significant Impairment"
         }
     }
+    
+    private fun getScoreColor(score: Float): Int {
+        if (score.isNaN()) return android.graphics.Color.GRAY
+        return when {
+            score >= 80 -> android.graphics.Color.parseColor("#4CAF50")  // Green
+            score >= 60 -> android.graphics.Color.parseColor("#FF9800")  // Orange
+            else -> android.graphics.Color.parseColor("#F44336")         // Red
+        }
+    }
 
     private fun saveGaitScoreToDatabase() {
         if (currentPatientId == null || currentVideoId == null) return
 
-        lifecycleScope.launch {
-            try {
-                val database = AppDatabase.getDatabase(this@ResultsActivity)
-                val gaitScoreRepository = GaitScoreRepository(database.gaitScoreDao())
+        val features = extractedFeatures ?: return
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            val database = AppDatabase.getDatabase(this@ResultsActivity)
+            val gaitScoreRepository = GaitScoreRepository(database.gaitScoreDao())
 
-                withContext(Dispatchers.IO) {
-                    val leftKneeScore = if (leftKneeMinAngles.isNotEmpty() && leftKneeMaxAngles.isNotEmpty()) {
-                        (leftKneeMaxAngles.average() - leftKneeMinAngles.average()) / 180.0 * 100.0
-                    } else null
+            // Use PC pipeline features for subscores
+            val gaitScore = GaitScore(
+                patientId = currentPatientId!!,
+                videoId = currentVideoId!!,
+                overallScore = calculatedScore,
+                leftKneeScore = features.knee_left_rom.toDouble(),
+                rightKneeScore = features.knee_right_rom.toDouble(),
+                leftHipScore = features.ldj_hip.toDouble(),
+                rightHipScore = null,
+                torsoScore = features.trunk_lean_std_deg.toDouble(),
+                recordedAt = System.currentTimeMillis()
+            )
 
-                    val rightKneeScore = if (rightKneeMinAngles.isNotEmpty() && rightKneeMaxAngles.isNotEmpty()) {
-                        (rightKneeMaxAngles.average() - rightKneeMinAngles.average()) / 180.0 * 100.0
-                    } else null
-
-                    val leftHipScore = if (leftHipAngles.isNotEmpty()) {
-                        leftHipAngles.average().toDouble() / 180.0 * 100.0
-                    } else null
-
-                    val rightHipScore = if (rightHipAngles.isNotEmpty()) {
-                        rightHipAngles.average().toDouble() / 180.0 * 100.0
-                    } else null
-
-                    val torsoScore = if (torsoMinAngles.isNotEmpty() && torsoMaxAngles.isNotEmpty()) {
-                        (torsoMaxAngles.average() - torsoMinAngles.average()) / 180.0 * 100.0
-                    } else null
-
-                    val gaitScore = GaitScore(
-                        patientId = currentPatientId!!,
-                        videoId = currentVideoId!!,
-                        overallScore = calculatedScore,
-                        leftKneeScore = leftKneeScore,
-                        rightKneeScore = rightKneeScore,
-                        leftHipScore = leftHipScore,
-                        rightHipScore = rightHipScore,
-                        torsoScore = torsoScore,
-                        recordedAt = System.currentTimeMillis()
-                    )
-
-                    gaitScoreRepository.insertGaitScore(gaitScore)
-                    Log.d("ResultsActivity", "Saved gait score: ${gaitScore.overallScore}")
-                }
-            } catch (e: Exception) {
-                Log.e("ResultsActivity", "Error saving gait score: ${e.message}", e)
-            }
+            gaitScoreRepository.insertGaitScore(gaitScore)
+            Log.d("ResultsActivity", "Saved gait score: ${gaitScore.overallScore}")
         }
     }
 
@@ -339,17 +313,43 @@ class ResultsActivity : AppCompatActivity() {
         )
 
         try {
+            // Export wireframe angle files (for visualization)
             for (i in fileData.indices) {
                 val fileName = "${participantId}_${angleNames[i]}.csv"
                 writeToFile(fileName, fileData[i])
+            }
+            
+            // Export PC-style gait features CSV
+            val diagnostics = extractionDiagnostics
+            if (diagnostics != null) {
+                val videoName = galleryUri?.lastPathSegment ?: "unknown"
+                val csvPath = GaitCsvExporter.exportToCSV(
+                    context = this,
+                    features = extractedFeatures,
+                    diagnostics = diagnostics,
+                    score = scoringResult,
+                    participantId = participantId.toString(),
+                    videoName = videoName
+                )
+                if (csvPath != null) {
+                    Log.d("ResultsActivity", "PC-style CSV exported to: $csvPath")
+                }
             }
 
             // Rename edited video
             renameEditedVideo()
 
+            // Build export message
+            val message = StringBuilder()
+            message.appendLine("CSV files saved to Documents as ${participantId}_GraphName.csv")
+            if (extractedFeatures != null) {
+                message.appendLine("\nGait features CSV exported with ${extractedFeatures!!.valid_stride_count} valid strides")
+            }
+            message.appendLine("\nVideo saved to Movies as ${participantId}_video.mp4")
+
             AlertDialog.Builder(this)
                 .setTitle("Export Successful")
-                .setMessage("CSV files saved to Documents as ${participantId}_GraphName.csv\n\nVideo saved to Movies as ${participantId}_video.mp4")
+                .setMessage(message.toString())
                 .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
                 .show()
 
@@ -391,39 +391,4 @@ class ResultsActivity : AppCompatActivity() {
         }
     }
 
-    // Helper functions for gait score calculation
-    private fun loadFloatBinFile(context: Context, filename: String): FloatArray {
-        val inputStream = context.assets.open(filename)
-        val bytes = inputStream.readBytes()
-        inputStream.close()
-
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val numFloats = bytes.size / 4
-        val result = FloatArray(numFloats)
-        for (i in 0 until numFloats) {
-            result[i] = buffer.float
-        }
-        return result
-    }
-
-    private fun loadNpyFloatArray(assetStream: InputStream): FloatArray {
-        val header = ByteArray(128)
-        assetStream.read(header)
-        val data = assetStream.readBytes()
-        val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
-        val floatList = mutableListOf<Float>()
-        while (buffer.hasRemaining()) {
-            floatList.add(buffer.float)
-        }
-        return floatList.toFloatArray()
-    }
-
-    private fun euclideanDistance(a: FloatArray, b: FloatArray): Float {
-        var sum = 0f
-        for (i in a.indices) {
-            val diff = a[i] - b[i]
-            sum += diff * diff
-        }
-        return sqrt(sum)
-    }
 }

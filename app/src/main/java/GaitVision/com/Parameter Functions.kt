@@ -3,7 +3,6 @@ package GaitVision.com
 import kotlin.math.PI
 import kotlin.math.acos
 import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.sqrt
 
 
@@ -128,73 +127,3 @@ fun GetAnglesA(x1: Float,y1: Float, x2: Float, y2: Float, x3: Float, y3: Float):
     return String.format("%.2f", smallerAngle).toFloat() //round to 2 decimal places
 }
 
-/*
-Name             : calcStrideLength
-Parameters       :
-    heightInches : Height in inches of the participant given from the user input.
-Description      : This function takes the participants height and uses a helper function to find
-                   the local maximums of the participants stride. It will use those values
-                   to calculate the total stride (distance) the participant walked in meters.
-Return           :
-    Float        : Returns the total distance the participant walked in meters.
- */
-fun calcStrideLength(heightInches: Float) : Float
-{
-    var maxAngles: List<Float>
-    maxAngles = FindLocalMax(strideAngles)
-    var sum = 0f
-    for(i in maxAngles.indices)
-    {
-        // Estimate hip-to-heel distance as 40-45% of height
-        val hipToHeelDistance = heightInches * 0.40f  // You can also use 0.45f for the upper bound
-
-        // Convert max angle to radians
-        val angleInRadians = Math.toRadians(maxAngles[i].toDouble()).toFloat()
-
-        // Use the law of cosines to calculate the distance between the two heels (stride length)
-        val strideLength = sqrt(
-            hipToHeelDistance * hipToHeelDistance +
-                    hipToHeelDistance * hipToHeelDistance -
-                    2 * hipToHeelDistance * hipToHeelDistance * cos(angleInRadians)
-        )
-        sum += strideLength
-    }
-    sum /= 39.37F
-    return sum
-}
-
-/*
-Name             : calcStrideLengthAvg
-Parameters       :
-    heightInches : Height in inches of the participant given from the user input.
-Description      : This function takes the participants height and uses a helper function to find
-                   the local maximums of the participants stride. It will use those values
-                   to calculate the total stride (distance) the participant walked in meters. Then
-                   we can find the average distance the participant took every step.
-Return           :
-    Float        : Returns the average distance the participant took with every step.
- */
-fun calcStrideLengthAvg(heightInches: Float) : Float
-{
-    var maxAngles: List<Float>
-    maxAngles = FindLocalMax(strideAngles)
-    var sum = 0f
-    for(i in maxAngles.indices)
-    {
-        // Estimate hip-to-heel distance as 40-45% of height
-        val hipToHeelDistance = heightInches * 0.40f  // You can also use 0.45f for the upper bound
-
-        // Convert max angle to radians
-        val angleInRadians = Math.toRadians(maxAngles[i].toDouble()).toFloat()
-
-        // Use the law of cosines to calculate the distance between the two heels (stride length)
-        val strideLength = sqrt(
-            hipToHeelDistance * hipToHeelDistance +
-                    hipToHeelDistance * hipToHeelDistance -
-                    2 * hipToHeelDistance * hipToHeelDistance * cos(angleInRadians)
-        )
-        sum += strideLength
-    }
-    sum /= 39.37F
-    return sum/maxAngles.size
-}

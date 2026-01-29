@@ -2,4 +2,5 @@
 <paths>
     <external-files-path name="videos" path="Videos/" />
     <external-path name="external_movies" path="Movies/" />
+    <cache-path name="cache" path="/" />
 </paths>
