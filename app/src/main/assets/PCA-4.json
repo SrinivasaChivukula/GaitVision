@@ -259,6 +259,13 @@
     "p99": 13.510355848772276,
     "formula": "clip((score - p1) / (p99 - p1) * 100, 0, 100)"
   },
+  "clinical_mapping": {
+    "input_type": "mse",
+    "lower_is_better": true,
+    "breakpoints": [0.8, 2.0, 4.0],
+    "health_scores": [100, 85, 65, 40, 0],
+    "description": "MSE 0→0.8: Healthy (85-100), 0.8→2.0: Mild (65-85), 2.0→4.0: Moderate (40-65), >4.0: Severe (0-40)"
+  },
   "usage": {
     "step1": "Normalize input: x_norm = (x - scaler.mean) / scaler.scale",
     "step2": "Project to PC space: pc = (x_norm - pca.mean) @ pca.components.T",

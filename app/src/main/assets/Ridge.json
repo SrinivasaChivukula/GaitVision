@@ -83,6 +83,13 @@
     "min": -0.7202088685511683,
     "max": 114.99734712470347
   },
+  "clinical_mapping": {
+    "input_type": "raw_score",
+    "lower_is_better": false,
+    "breakpoints": [50, 70, 85],
+    "health_scores": [0, 40, 65, 85, 100],
+    "description": "Raw <50: Severe (0-40), 50-70: Moderate (40-65), 70-85: Mild (65-85), >85: Healthy (85-100)"
+  },
   "usage": {
     "step1": "Normalize: x_norm = (x - scaler.mean) / scaler.scale",
     "step2": "Predict: score = dot(x_norm, coefficients) + intercept",

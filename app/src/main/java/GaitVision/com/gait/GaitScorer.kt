@@ -32,12 +32,20 @@ class GaitScorer(private val context: Context) {
         private const val PCA_CONFIG = "PCA-4.json"
     }
     
+    // Clinical mapping config (loaded from JSON)
+    private data class ClinicalMapping(
+        val lowerIsBetter: Boolean,
+        val breakpoints: FloatArray,
+        val healthScores: FloatArray
+    )
+    
     // AE model
     private var aeInterpreter: Interpreter? = null
     private var aeScalerMean: FloatArray? = null
     private var aeScalerScale: FloatArray? = null
     private var aeScoreP1: Float = 0f
     private var aeScoreP99: Float = 1f
+    private var aeClinicalMapping: ClinicalMapping? = null
     private var aeAvailable = false
     
     // Ridge model
@@ -48,6 +56,7 @@ class GaitScorer(private val context: Context) {
     private var ridgeScoreMin: Float = 0f      // From score_range
     private var ridgeScoreMax: Float = 100f    // From score_range
     private var ridgeThreshold: Float = 75f    // Classification threshold
+    private var ridgeClinicalMapping: ClinicalMapping? = null
     private var ridgeAvailable = false
     
     // PCA model
@@ -56,6 +65,7 @@ class GaitScorer(private val context: Context) {
     private var pcaScalerScale: FloatArray? = null
     private var pcaScoreP1: Float = 0f
     private var pcaScoreP99: Float = 1f
+    private var pcaClinicalMapping: ClinicalMapping? = null
     private var pcaAvailable = false
     
     private var isInitialized = false
@@ -106,10 +116,14 @@ class GaitScorer(private val context: Context) {
             aeScoreP99 = scoreMapping.getDouble("p99").toFloat()
             Log.d(TAG, "AE: score_mapping p1=$aeScoreP1, p99=$aeScoreP99")
             
+            // Load clinical mapping
+            aeClinicalMapping = loadClinicalMapping(config)
+            Log.d(TAG, "AE: clinical mapping loaded=${aeClinicalMapping != null}")
+            
             // Load TFLite model
             Log.d(TAG, "Loading AE TFLite from $AE_TFLITE...")
             val modelBuffer = loadModelFile(AE_TFLITE)
-            if (modelBuffer != null) {
+            if (modelBuffer != null && aeClinicalMapping != null) {
                 aeInterpreter = Interpreter(modelBuffer)
                 aeAvailable = true
                 
@@ -148,10 +162,14 @@ class GaitScorer(private val context: Context) {
             ridgeScoreMax = scoreRange.getDouble("max").toFloat()
             ridgeThreshold = config.getDouble("threshold").toFloat()
             
+            // Load clinical mapping
+            ridgeClinicalMapping = loadClinicalMapping(config)
+            Log.d(TAG, "Ridge: clinical mapping loaded=${ridgeClinicalMapping != null}")
+            
             Log.d(TAG, "Ridge: range=[$ridgeScoreMin, $ridgeScoreMax], threshold=$ridgeThreshold")
             
-            ridgeAvailable = true
-            Log.d(TAG, "Loaded Ridge model: ${config.getString("model_name")}")
+            ridgeAvailable = ridgeClinicalMapping != null
+            Log.d(TAG, "Loaded Ridge model: ${config.getString("model_name")}, available=$ridgeAvailable")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load Ridge model: ${e.message}")
         }
@@ -187,11 +205,93 @@ class GaitScorer(private val context: Context) {
             pcaScoreP99 = scoreMapping.getDouble("p99").toFloat()
             Log.d(TAG, "PCA: score_mapping p1=$pcaScoreP1, p99=$pcaScoreP99")
             
-            pcaAvailable = true
-            Log.d(TAG, "Loaded PCA model: ${config.getString("model_name")}")
+            // Load clinical mapping
+            pcaClinicalMapping = loadClinicalMapping(config)
+            Log.d(TAG, "PCA: clinical mapping loaded=${pcaClinicalMapping != null}")
+            
+            pcaAvailable = pcaClinicalMapping != null
+            Log.d(TAG, "Loaded PCA model: ${config.getString("model_name")}, available=$pcaAvailable")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load PCA model: ${e.message}")
             e.printStackTrace()
+        }
+    }
+    
+    /**
+     * Load clinical mapping from JSON config.
+     * Returns null if not present (falls back to hardcoded defaults).
+     */
+    private fun loadClinicalMapping(config: JSONObject): ClinicalMapping? {
+        return try {
+            if (!config.has("clinical_mapping")) return null
+            
+            val mapping = config.getJSONObject("clinical_mapping")
+            val lowerIsBetter = mapping.getBoolean("lower_is_better")
+            val breakpointsJson = mapping.getJSONArray("breakpoints")
+            val healthScoresJson = mapping.getJSONArray("health_scores")
+            
+            val breakpoints = FloatArray(breakpointsJson.length()) { 
+                breakpointsJson.getDouble(it).toFloat() 
+            }
+            val healthScores = FloatArray(healthScoresJson.length()) { 
+                healthScoresJson.getDouble(it).toFloat() 
+            }
+            
+            ClinicalMapping(lowerIsBetter, breakpoints, healthScores)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not load clinical_mapping: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Apply clinical mapping to convert raw score to 0-100 health score.
+     * Uses piecewise linear interpolation between breakpoints.
+     */
+    private fun applyClinicalMapping(rawScore: Float, mapping: ClinicalMapping): Float {
+        val breakpoints = mapping.breakpoints
+        val healthScores = mapping.healthScores
+        
+        // Find which segment the score falls into
+        if (mapping.lowerIsBetter) {
+            // Lower raw = healthier (MSE-based: AE, PCA)
+            // healthScores[0] = score at raw=0, healthScores[n] = score at raw=infinity
+            for (i in breakpoints.indices) {
+                if (rawScore <= breakpoints[i]) {
+                    val prevBreak = if (i == 0) 0f else breakpoints[i - 1]
+                    val prevHealth = healthScores[i]
+                    val nextHealth = healthScores[i + 1]
+                    val t = (rawScore - prevBreak) / (breakpoints[i] - prevBreak)
+                    return prevHealth - t * (prevHealth - nextHealth)
+                }
+            }
+            // Beyond last breakpoint - extrapolate to minimum
+            val lastBreak = breakpoints.last()
+            val lastHealth = healthScores[healthScores.size - 2]
+            val minHealth = healthScores.last()
+            // Extrapolate: assume same span as last segment for gradual decline
+            val lastSpan = if (breakpoints.size >= 2) breakpoints.last() - breakpoints[breakpoints.size - 2] else lastBreak
+            val t = ((rawScore - lastBreak) / (lastSpan * 3)).coerceAtMost(1f)  // 3x span to reach minimum
+            return maxOf(minHealth, lastHealth - t * (lastHealth - minHealth))
+        } else {
+            // Higher raw = healthier (Ridge regression)
+            // healthScores[0] = score at raw=0, healthScores[n] = score at raw=infinity
+            for (i in breakpoints.indices) {
+                if (rawScore <= breakpoints[i]) {
+                    val prevBreak = if (i == 0) 0f else breakpoints[i - 1]
+                    val prevHealth = if (i == 0) healthScores[0] else healthScores[i]
+                    val nextHealth = healthScores[i + 1]
+                    val t = (rawScore - prevBreak) / (breakpoints[i] - prevBreak)
+                    return prevHealth + t * (nextHealth - prevHealth)
+                }
+            }
+            // Beyond last breakpoint - extrapolate to maximum
+            val lastBreak = breakpoints.last()
+            val lastHealth = healthScores[healthScores.size - 2]
+            val maxHealth = healthScores.last()
+            val lastSpan = if (breakpoints.size >= 2) breakpoints.last() - breakpoints[breakpoints.size - 2] else 15f
+            val t = ((rawScore - lastBreak) / lastSpan).coerceAtMost(1f)
+            return minOf(maxHealth, lastHealth + t * (maxHealth - lastHealth))
         }
     }
     
@@ -309,25 +409,9 @@ class GaitScorer(private val context: Context) {
             
             Log.d(TAG, "AE: MSE = $mse, p1=${aeScoreP1}, p99=${aeScoreP99}")
             
-            // Map to 0-100 using the model's score_mapping
-            // Original mapping (compressed range):
-            // val mapped = ((mse - aeScoreP1) / (aeScoreP99 - aeScoreP1) * 100f).coerceIn(0f, 100f)
-            
-            // Alternative: Use clinical thresholds for better differentiation
-            // Normal MSE: ~0.5, Mild: ~2.3, Moderate: ~2.3, Severe: ~4.8
-            // Map using median values for better spread:
-            // MSE ≤ 0.8 → 85-100 (Normal)
-            // MSE 0.8-2.0 → 65-85 (Mild)
-            // MSE 2.0-4.0 → 40-65 (Moderate)
-            // MSE > 4.0 → 0-40 (Severe)
-            val healthScore = when {
-                mse <= 0.8f -> 100f - (mse / 0.8f * 15f)  // 85-100
-                mse <= 2.0f -> 85f - ((mse - 0.8f) / 1.2f * 20f)  // 65-85
-                mse <= 4.0f -> 65f - ((mse - 2.0f) / 2.0f * 25f)  // 40-65
-                else -> maxOf(0f, 40f - ((mse - 4.0f) / 12.14f * 40f))  // 0-40
-            }
-            
-            Log.d(TAG, "AE: mapped (clinical scale), healthScore=$healthScore")
+            // Map MSE to 0-100 health score using clinical thresholds from config
+            val healthScore = applyClinicalMapping(mse, aeClinicalMapping!!)
+            Log.d(TAG, "AE: MSE=$mse -> healthScore=$healthScore")
             return healthScore
             
         } catch (e: Exception) {
@@ -364,21 +448,9 @@ class GaitScorer(private val context: Context) {
             Log.d(TAG, "Ridge: raw=$rawScore, range=[$ridgeScoreMin, $ridgeScoreMax], threshold=$ridgeThreshold")
             Log.d(TAG, "Ridge: ${if (rawScore > ridgeThreshold) "HEALTHY" else "IMPAIRED"} (raw ${if (rawScore > ridgeThreshold) ">" else "<"} threshold)")
             
-            // Map to 0-100 using clinical thresholds (consistent with AE/PCA)
-            // Ridge predicts health-like score where higher = healthier
-            // Threshold ~75: above = healthy, below = impaired
-            // Raw > 85 → Health 85-100 (Normal)
-            // Raw 70-85 → Health 65-85 (Mild)  
-            // Raw 50-70 → Health 40-65 (Moderate)
-            // Raw < 50 → Health 0-40 (Severe)
-            val healthScore = when {
-                rawScore >= 85f -> 85f + ((rawScore - 85f) / 30f * 15f).coerceAtMost(15f)  // 85-100
-                rawScore >= 70f -> 65f + ((rawScore - 70f) / 15f * 20f)  // 65-85
-                rawScore >= 50f -> 40f + ((rawScore - 50f) / 20f * 25f)  // 40-65
-                else -> maxOf(0f, (rawScore / 50f * 40f))  // 0-40
-            }
-            
-            Log.d(TAG, "Ridge: healthScore=$healthScore (clinical scale)")
+            // Map raw score to 0-100 health score using clinical thresholds from config
+            val healthScore = applyClinicalMapping(rawScore, ridgeClinicalMapping!!)
+            Log.d(TAG, "Ridge: raw=$rawScore -> healthScore=$healthScore")
             return healthScore
             
         } catch (e: Exception) {
@@ -450,20 +522,9 @@ class GaitScorer(private val context: Context) {
             
             Log.d(TAG, "PCA: MSE = $mse, p1=${pcaScoreP1}, p99=${pcaScoreP99}")
             
-            // Map to 0-100 using clinical thresholds (same as AE)
-            // Normal MSE: ~0.5, Mild: ~2.0, Moderate: ~2.3, Severe: ~5.4
-            // MSE ≤ 0.8 → 85-100 (Normal)
-            // MSE 0.8-2.0 → 65-85 (Mild)
-            // MSE 2.0-4.0 → 40-65 (Moderate)
-            // MSE > 4.0 → 0-40 (Severe)
-            val healthScore = when {
-                mse <= 0.8f -> 100f - (mse / 0.8f * 15f)  // 85-100
-                mse <= 2.0f -> 85f - ((mse - 0.8f) / 1.2f * 20f)  // 65-85
-                mse <= 4.0f -> 65f - ((mse - 2.0f) / 2.0f * 25f)  // 40-65
-                else -> maxOf(0f, 40f - ((mse - 4.0f) / 10f * 40f))  // 0-40
-            }
-            
-            Log.d(TAG, "PCA: healthScore=$healthScore (clinical scale)")
+            // Map MSE to 0-100 health score using clinical thresholds from config
+            val healthScore = applyClinicalMapping(mse, pcaClinicalMapping!!)
+            Log.d(TAG, "PCA: MSE=$mse -> healthScore=$healthScore")
             return healthScore
             
         } catch (e: Exception) {

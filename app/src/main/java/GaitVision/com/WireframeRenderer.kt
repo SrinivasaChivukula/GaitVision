@@ -44,11 +44,6 @@ fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
         return Pair(x, y)
     }
     
-    // Helper to check if landmark is visible (confidence threshold)
-    fun isVisible(landmarkIdx: Int): Boolean {
-        return confidences[landmarkIdx] > 0.3f
-    }
-    
     // Get coordinates for all landmarks we need
     val (leftShoulderX, leftShoulderY) = getPixelCoords(MediaPipePoseBackend.LEFT_SHOULDER)
     val (rightShoulderX, rightShoulderY) = getPixelCoords(MediaPipePoseBackend.RIGHT_SHOULDER)
