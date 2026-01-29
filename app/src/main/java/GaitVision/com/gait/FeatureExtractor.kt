@@ -1,6 +1,7 @@
 package GaitVision.com.gait
 
 import android.util.Log
+import GaitVision.com.enableVerboseLogging
 import GaitVision.com.mediapipe.MediaPipePoseBackend
 import GaitVision.com.mediapipe.PoseFrame
 import GaitVision.com.mediapipe.PoseSequence
@@ -89,95 +90,77 @@ class FeatureExtractor(
         }
         
         // =====================================================================
-        // FULL PIPELINE DEBUG - Compare with PC
+        // FULL PIPELINE DEBUG - Compare with PC (controlled by enableVerboseLogging)
         // =====================================================================
         
-        // STAGE 1: RAW LANDMARKS
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 1: RAW LANDMARKS ==========")
-        Log.d(TAG, "frame,la_x,la_y,ra_x,ra_y,lk_x,lk_y,rk_x,rk_y,lh_x,lh_y,rh_x,rh_y,la_conf,ra_conf,lk_conf,rk_conf")
-        for (frameIdx in 0 until poseSeq.numFramesTotal) {
-            val frame = poseSeq.frames.find { it.frameIdx == frameIdx }
-            if (frame != null) {
-                val la = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE]
-                val ra = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE]
-                val lk = frame.keypoints[MediaPipePoseBackend.LEFT_KNEE]
-                val rk = frame.keypoints[MediaPipePoseBackend.RIGHT_KNEE]
-                val lh = frame.keypoints[MediaPipePoseBackend.LEFT_HIP]
-                val rh = frame.keypoints[MediaPipePoseBackend.RIGHT_HIP]
-                val laC = frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
-                val raC = frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
-                val lkC = frame.confidences[MediaPipePoseBackend.LEFT_KNEE]
-                val rkC = frame.confidences[MediaPipePoseBackend.RIGHT_KNEE]
-                Log.d(TAG, "$frameIdx,${String.format("%.6f", la[0])},${String.format("%.6f", la[1])},${String.format("%.6f", ra[0])},${String.format("%.6f", ra[1])},${String.format("%.6f", lk[0])},${String.format("%.6f", lk[1])},${String.format("%.6f", rk[0])},${String.format("%.6f", rk[1])},${String.format("%.6f", lh[0])},${String.format("%.6f", lh[1])},${String.format("%.6f", rh[0])},${String.format("%.6f", rh[1])},${String.format("%.3f", laC)},${String.format("%.3f", raC)},${String.format("%.3f", lkC)},${String.format("%.3f", rkC)}")
-            } else {
-                Log.d(TAG, "$frameIdx,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,0,0")
-            }
-        }
-        
-        // STAGE 2: COMPUTE RAW SIGNALS
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 2: RAW SIGNALS (before interp/smooth) ==========")
+        // Step 1: Compute signals
         var signals = computeSignals(poseSeq)
-        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right,ankle_left_y,ankle_right_y")
-        for (i in 0 until signals.timestamps.size) {
-            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])},${String.format("%.6f", signals.ankleLeftY[i])},${String.format("%.6f", signals.ankleRightY[i])}")
-        }
         
-        // STAGE 3: INTERPOLATE
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 3: AFTER INTERPOLATION ==========")
+        // Step 2: Interpolate gaps
         signals = interpolateSignals(signals)
-        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
-        for (i in 0 until signals.timestamps.size) {
-            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
-        }
         
-        // STAGE 4: SMOOTH
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 4: AFTER SMOOTHING ==========")
+        // Step 3: Light smoothing
         signals = smoothSignals(signals)
-        Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
-        for (i in 0 until signals.timestamps.size) {
-            Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
-        }
         
-        // Signal stats summary
-        val interAnkle = signals.interAnkleDist
-        val validCount = interAnkle.count { !it.isNaN() }
-        val validVals = interAnkle.filter { !it.isNaN() }
-        if (validVals.isNotEmpty()) {
-            Log.d(TAG, "INTER_ANKLE stats: count=$validCount, mean=${String.format("%.4f", validVals.average())}, std=${String.format("%.4f", validVals.std())}, min=${String.format("%.4f", validVals.minOrNull())}, max=${String.format("%.4f", validVals.maxOrNull())}")
-        }
-        
-        // STAGE 5: COMPUTE VELOCITIES
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 5: AFTER VELOCITY COMPUTATION ==========")
+        // Step 4: Compute velocities
         signals = computeVelocities(signals, poseSeq.fps)
         
-        // STAGE 6: DETERMINE NEAR LEG
+        // Step 5: Determine near leg
         val nearLeg = determineNearLeg(poseSeq)
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 6: NEAR LEG ==========")
-        Log.d(TAG, "Near leg: $nearLeg")
         
-        // STAGE 7: STEP SIGNAL MODE SELECTION & STEP DETECTION
-        Log.d(TAG, "")
-        Log.d(TAG, "========== STAGE 7: STEP SIGNAL & PEAKS ==========")
+        // Step 6: Multi-mode step detection
         val (stepMode, stepSignal, modeScores) = selectStepSignalMode(signals, poseSeq, nearLeg, poseSeq.fps)
-        Log.d(TAG, "Selected mode: ${stepMode.value}")
-        
-        // Log the full step signal used for peak detection
-        Log.d(TAG, "STEP_SIGNAL (${stepMode.value}):")
-        Log.d(TAG, "frame,value")
-        for (i in stepSignal.indices) {
-            Log.d(TAG, "$i,${String.format("%.6f", stepSignal[i])}")
-        }
-        
         val steps = detectStepsFromSignal(stepSignal, poseSeq.fps)
-        Log.d(TAG, "")
-        Log.d(TAG, "DETECTED PEAKS: ${steps.map { it.frameIdx }}")
-        Log.d(TAG, "PEAK TIMES: ${steps.map { String.format("%.3f", it.timeS) }}")
+        Log.d(TAG, "Step signal mode: ${stepMode.value}, detected ${steps.size} steps")
+        
+        // Verbose per-frame logging (expensive - only enable for debugging)
+        if (enableVerboseLogging) {
+            Log.d(TAG, "")
+            Log.d(TAG, "========== VERBOSE DEBUG: RAW LANDMARKS ==========")
+            Log.d(TAG, "frame,la_x,la_y,ra_x,ra_y,lk_x,lk_y,rk_x,rk_y,lh_x,lh_y,rh_x,rh_y,la_conf,ra_conf,lk_conf,rk_conf")
+            for (frameIdx in 0 until poseSeq.numFramesTotal) {
+                val frame = poseSeq.frames.find { it.frameIdx == frameIdx }
+                if (frame != null) {
+                    val la = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE]
+                    val ra = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE]
+                    val lk = frame.keypoints[MediaPipePoseBackend.LEFT_KNEE]
+                    val rk = frame.keypoints[MediaPipePoseBackend.RIGHT_KNEE]
+                    val lh = frame.keypoints[MediaPipePoseBackend.LEFT_HIP]
+                    val rh = frame.keypoints[MediaPipePoseBackend.RIGHT_HIP]
+                    val laC = frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
+                    val raC = frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
+                    val lkC = frame.confidences[MediaPipePoseBackend.LEFT_KNEE]
+                    val rkC = frame.confidences[MediaPipePoseBackend.RIGHT_KNEE]
+                    Log.d(TAG, "$frameIdx,${String.format("%.6f", la[0])},${String.format("%.6f", la[1])},${String.format("%.6f", ra[0])},${String.format("%.6f", ra[1])},${String.format("%.6f", lk[0])},${String.format("%.6f", lk[1])},${String.format("%.6f", rk[0])},${String.format("%.6f", rk[1])},${String.format("%.6f", lh[0])},${String.format("%.6f", lh[1])},${String.format("%.6f", rh[0])},${String.format("%.6f", rh[1])},${String.format("%.3f", laC)},${String.format("%.3f", raC)},${String.format("%.3f", lkC)},${String.format("%.3f", rkC)}")
+                } else {
+                    Log.d(TAG, "$frameIdx,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,0,0,0,0")
+                }
+            }
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "========== VERBOSE DEBUG: SIGNALS ==========")
+            Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
+            for (i in 0 until signals.timestamps.size) {
+                Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
+            }
+            
+            val interAnkle = signals.interAnkleDist
+            val validCount = interAnkle.count { !it.isNaN() }
+            val validVals = interAnkle.filter { !it.isNaN() }
+            if (validVals.isNotEmpty()) {
+                Log.d(TAG, "INTER_ANKLE stats: count=$validCount, mean=${String.format("%.4f", validVals.average())}, std=${String.format("%.4f", validVals.std())}, min=${String.format("%.4f", validVals.minOrNull())}, max=${String.format("%.4f", validVals.maxOrNull())}")
+            }
+            
+            Log.d(TAG, "")
+            Log.d(TAG, "========== VERBOSE DEBUG: STEP SIGNAL ==========")
+            Log.d(TAG, "Near leg: $nearLeg, Mode: ${stepMode.value}")
+            Log.d(TAG, "frame,value")
+            for (i in stepSignal.indices) {
+                Log.d(TAG, "$i,${String.format("%.6f", stepSignal[i])}")
+            }
+            Log.d(TAG, "DETECTED PEAKS: ${steps.map { it.frameIdx }}")
+            Log.d(TAG, "PEAK TIMES: ${steps.map { String.format("%.3f", it.timeS) }}")
+        }
         
         if (steps.size < 4) {
             return Pair(null, createDiagnostics(poseSeq, QualityFlag.NO_CYCLES, 

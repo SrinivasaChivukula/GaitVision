@@ -241,6 +241,31 @@ fun releaseMediaPipeBackend() {
     Log.d("ImageProcessing", "MediaPipe backend released")
 }
 
+/**
+ * Smooth all angle data lists for chart display.
+ */
+private fun smoothAllAngleData(windowSize: Int = 5) {
+    smoothDataUsingMovingAverage(rightKneeAngles, windowSize)
+    smoothDataUsingMovingAverage(leftKneeAngles, windowSize)
+    smoothDataUsingMovingAverage(rightHipAngles, windowSize)
+    smoothDataUsingMovingAverage(leftHipAngles, windowSize)
+    smoothDataUsingMovingAverage(rightAnkleAngles, windowSize)
+    smoothDataUsingMovingAverage(leftAnkleAngles, windowSize)
+    smoothDataUsingMovingAverage(torsoAngles, windowSize)
+    smoothDataUsingMovingAverage(strideAngles, windowSize)
+}
+
+/**
+ * Hide progress UI elements after processing.
+ */
+private suspend fun hideProgressUI(activity: AppCompatActivity) {
+    withContext(Dispatchers.Main) {
+        activity.findViewById<TextView>(R.id.SplittingText).visibility = GONE
+        activity.findViewById<ProgressBar>(R.id.splittingBar).visibility = GONE
+        activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = GONE
+    }
+}
+
 // Timing accumulators for CLAHE vs pure MediaPipe (for diagnostics)
 var totalClaheTimeMs = 0L
 var totalPureMediaPipeTimeMs = 0L
@@ -309,215 +334,7 @@ fun processFrameWithMediaPipe(
     )
 }
 
-/**
- * Draw skeleton overlay and calculate angles from MediaPipe pose frame.
- * 
- * MediaPipe returns normalized coordinates (0-1), which we convert to pixel
- * coordinates for drawing. Angle calculations use the same formulas as before.
- * 
- * @param bitmap Frame to draw on (modified in place)
- * @param poseFrame Pose detection result with normalized coordinates
- * @return The modified bitmap with skeleton overlay
- */
-fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
-    if (poseFrame == null) {
-        return bitmap
-    }
-    
-    val width = bitmap.width.toFloat()
-    val height = bitmap.height.toFloat()
-    val keypoints = poseFrame.keypoints
-    val confidences = poseFrame.confidences
-    
-    // Helper to get pixel coordinates from normalized keypoint
-    fun getPixelCoords(landmarkIdx: Int): Pair<Float, Float> {
-        val x = keypoints[landmarkIdx][0] * width
-        val y = keypoints[landmarkIdx][1] * height
-        return Pair(x, y)
-    }
-    
-    // Helper to check if landmark is visible (confidence threshold)
-    fun isVisible(landmarkIdx: Int): Boolean {
-        return confidences[landmarkIdx] > 0.3f
-    }
-    
-    // Get coordinates for all landmarks we need
-    val (leftShoulderX, leftShoulderY) = getPixelCoords(MediaPipePoseBackend.LEFT_SHOULDER)
-    val (rightShoulderX, rightShoulderY) = getPixelCoords(MediaPipePoseBackend.RIGHT_SHOULDER)
-    val (leftHipX, leftHipY) = getPixelCoords(MediaPipePoseBackend.LEFT_HIP)
-    val (rightHipX, rightHipY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HIP)
-    val (leftKneeX, leftKneeY) = getPixelCoords(MediaPipePoseBackend.LEFT_KNEE)
-    val (rightKneeX, rightKneeY) = getPixelCoords(MediaPipePoseBackend.RIGHT_KNEE)
-    val (leftAnkleX, leftAnkleY) = getPixelCoords(MediaPipePoseBackend.LEFT_ANKLE)
-    val (rightAnkleX, rightAnkleY) = getPixelCoords(MediaPipePoseBackend.RIGHT_ANKLE)
-    val (leftHeelX, leftHeelY) = getPixelCoords(MediaPipePoseBackend.LEFT_HEEL)
-    val (rightHeelX, rightHeelY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HEEL)
-    val (leftFootIndexX, leftFootIndexY) = getPixelCoords(MediaPipePoseBackend.LEFT_FOOT_INDEX)
-    val (rightFootIndexX, rightFootIndexY) = getPixelCoords(MediaPipePoseBackend.RIGHT_FOOT_INDEX)
-    
-    // Angle Calculations (same formulas as before)
-    // Ankle Angles
-    val leftAnkleAngle = GetAnglesA(leftFootIndexX, leftFootIndexY, leftAnkleX, leftAnkleY, leftKneeX, leftKneeY)
-    if (!leftAnkleAngle.isNaN() && leftAnkleAngle < 70 && leftAnkleAngle > -25) {
-        leftAnkleAngles.add(leftAnkleAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "Left Ankle: $leftAnkleAngle")
-    }
-    
-    val rightAnkleAngle = GetAnglesA(rightFootIndexX, rightFootIndexY, rightAnkleX, rightAnkleY, rightKneeX, rightKneeY)
-    if (!rightAnkleAngle.isNaN() && rightAnkleAngle < 70 && rightAnkleAngle > -25) {
-        rightAnkleAngles.add(rightAnkleAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "Right Ankle: $rightAnkleAngle")
-    }
-
-    // Knee Angles
-    val leftKneeAngle = GetAngles(leftAnkleX, leftAnkleY, leftKneeX, leftKneeY, leftHipX, leftHipY)
-    if (!leftKneeAngle.isNaN()) {
-        leftKneeAngles.add(leftKneeAngle)
-    } else {
-        count++
-    }
-    
-    val rightKneeAngle = GetAngles(rightAnkleX, rightAnkleY, rightKneeX, rightKneeY, rightHipX, rightHipY)
-    if (!rightKneeAngle.isNaN()) {
-        rightKneeAngles.add(rightKneeAngle)
-    } else {
-        count++
-    }
-
-    // Hip Angles
-    val leftHipAngle = GetAngles(leftKneeX, leftKneeY, leftHipX, leftHipY, leftShoulderX, leftShoulderY)
-    if (!leftHipAngle.isNaN()) {
-        leftHipAngles.add(leftHipAngle)
-    } else {
-        count++
-    }
-    
-    val rightHipAngle = GetAngles(rightKneeX, rightKneeY, rightHipX, rightHipY, rightShoulderX, rightShoulderY)
-    if (!rightHipAngle.isNaN()) {
-        rightHipAngles.add(rightHipAngle)
-    } else {
-        count++
-    }
-
-    // Torso Angle
-    val torsoAngle = calcTorso(
-        (leftHipX + rightHipX) / 2, (leftHipY + rightHipY) / 2,
-        (rightShoulderX + leftShoulderX) / 2, (rightShoulderY + leftShoulderY) / 2
-    )
-    if (!torsoAngle.isNaN() && torsoAngle > -20 && torsoAngle < 20) {
-        torsoAngles.add(torsoAngle)
-    } else {
-        count++
-        Log.d("ErrorCheck", "TorsoAngle: $torsoAngle")
-    }
-
-    // Stride angle
-    val strideAngle = calcStrideAngle(
-        leftHeelX, leftHeelY,
-        (leftHipX + rightHipX) / 2f, (leftHipY + rightHipY) / 2,
-        rightHeelX, rightHeelY
-    )
-    strideAngles.add(strideAngle)
-
-    // Draw skeleton overlay
-    val canvas = Canvas(bitmap)
-
-    val paintCircleRight = Paint().apply { setARGB(255, 255, 0, 0) }
-    val paintCircleLeft = Paint().apply { setARGB(255, 0, 0, 255) }
-    val paintLine = Paint().apply {
-        setARGB(255, 255, 255, 255)
-        strokeWidth = 4f
-    }
-
-    // Draw connections
-    canvas.drawLine(rightHipX, rightHipY, rightKneeX, rightKneeY, paintLine)
-    canvas.drawLine(leftHipX, leftHipY, leftKneeX, leftKneeY, paintLine)
-    canvas.drawLine(rightKneeX, rightKneeY, rightAnkleX, rightAnkleY, paintLine)
-    canvas.drawLine(leftKneeX, leftKneeY, leftAnkleX, leftAnkleY, paintLine)
-    canvas.drawLine(rightAnkleX, rightAnkleY, rightFootIndexX, rightFootIndexY, paintLine)
-    canvas.drawLine(leftAnkleX, leftAnkleY, leftFootIndexX, leftFootIndexY, paintLine)
-    canvas.drawLine(rightAnkleX, rightAnkleY, rightHeelX, rightHeelY, paintLine)
-    canvas.drawLine(leftAnkleX, leftAnkleY, leftHeelX, leftHeelY, paintLine)
-    canvas.drawLine(rightHeelX, rightHeelY, rightFootIndexX, rightFootIndexY, paintLine)
-    canvas.drawLine(leftHeelX, leftHeelY, leftFootIndexX, leftFootIndexY, paintLine)
-
-    // Draw points
-    canvas.drawCircle(rightHipX, rightHipY, 4f, paintCircleRight)
-    canvas.drawCircle(leftHipX, leftHipY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightKneeX, rightKneeY, 4f, paintCircleRight)
-    canvas.drawCircle(leftKneeX, leftKneeY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightAnkleX, rightAnkleY, 4f, paintCircleRight)
-    canvas.drawCircle(leftAnkleX, leftAnkleY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightHeelX, rightHeelY, 4f, paintCircleRight)
-    canvas.drawCircle(leftHeelX, leftHeelY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightFootIndexX, rightFootIndexY, 4f, paintCircleRight)
-    canvas.drawCircle(leftFootIndexX, leftFootIndexY, 4f, paintCircleLeft)
-
-    return bitmap
-}
-
-/**
- * Extract frames from video as bitmaps.
- */
-suspend fun getFrameBitmaps(context: Context, fileUri: Uri?, activity: AppCompatActivity) {
-    if (fileUri == null) return
-
-    val retriever = MediaMetadataRetriever()
-    frameList = mutableListOf()
-    
-    try {
-        val pfd = context.contentResolver.openFileDescriptor(fileUri, "r")
-        if (pfd != null) {
-            retriever.setDataSource(pfd.fileDescriptor)
-            pfd.close()
-        } else {
-            retriever.setDataSource(context, fileUri)
-        }
-    } catch (e: Exception) {
-        Log.e("ImageProcessing", "Error opening video: ${e.message}")
-        retriever.setDataSource(context, fileUri)
-    }
-
-    val mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
-    
-    if (mimeType == "video/mp4") {
-        val videoLengthMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
-        val frameInterval = (1000L * 1000L / detectedFps).toLong()  // Use detected FPS
-        var currTime = 0L
-        val videoLengthUs = videoLengthMs * 1000L
-        videoLength = videoLengthUs
-
-        withContext(Dispatchers.Main) {
-            activity.findViewById<View>(R.id.splittingBar).visibility = VISIBLE
-            activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = VISIBLE
-            activity.findViewById<TextView>(R.id.splittingProgressValue).text = " 0%"
-        }
-        
-        while (currTime <= videoLengthUs) {
-            val frame = retriever.getFrameAtTime(currTime, MediaMetadataRetriever.OPTION_CLOSEST)
-            if (frame != null) {
-                frameList.add(frame)
-            }
-
-            val progress = ((currTime.toDouble() / videoLengthUs) * 100).toInt()
-            withContext(Dispatchers.Main) {
-                activity.findViewById<ProgressBar>(R.id.splittingBar).setProgress(progress)
-                activity.findViewById<TextView>(R.id.splittingProgressValue).text = " $progress%"
-            }
-            currTime += frameInterval
-        }
-    } else if (mimeType == "image/jpeg" || mimeType == "image/png") {
-        val stream = context.contentResolver.openInputStream(fileUri)
-        val frame = BitmapFactory.decodeStream(stream)
-        frameList.add(frame)
-    }
-
-    retriever.release()
-}
+// drawOnBitmapMediaPipe moved to WireframeRenderer.kt
 
 /**
  * Main video processing function using MediaPipe Tasks + FAST MediaCodec extraction.
@@ -890,21 +707,10 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     releaseMediaPipeBackend()
 
     // Hide progress UI
-    withContext(Dispatchers.Main) {
-        activity.findViewById<TextView>(R.id.SplittingText).visibility = GONE
-        activity.findViewById<ProgressBar>(R.id.splittingBar).visibility = GONE
-        activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = GONE
-    }
+    hideProgressUI(activity)
 
     // Smooth angle data for charts
-    smoothDataUsingMovingAverage(rightKneeAngles, 5)
-    smoothDataUsingMovingAverage(leftKneeAngles, 5)
-    smoothDataUsingMovingAverage(rightHipAngles, 5)
-    smoothDataUsingMovingAverage(leftHipAngles, 5)
-    smoothDataUsingMovingAverage(rightAnkleAngles, 5)
-    smoothDataUsingMovingAverage(leftAnkleAngles, 5)
-    smoothDataUsingMovingAverage(torsoAngles, 5)
-    smoothDataUsingMovingAverage(strideAngles, 5)
+    smoothAllAngleData()
 
     Log.d(TAG, "FAST STREAMING complete. Processed $frameIndex frames, ${poseFrames.size} poses detected")
     
@@ -1049,20 +855,9 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
     retriever.release()
     releaseMediaPipeBackend()
 
-    withContext(Dispatchers.Main) {
-        activity.findViewById<TextView>(R.id.SplittingText).visibility = GONE
-        activity.findViewById<ProgressBar>(R.id.splittingBar).visibility = GONE
-        activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = GONE
-    }
+    hideProgressUI(activity)
 
-    smoothDataUsingMovingAverage(rightKneeAngles, 5)
-    smoothDataUsingMovingAverage(leftKneeAngles, 5)
-    smoothDataUsingMovingAverage(rightHipAngles, 5)
-    smoothDataUsingMovingAverage(leftHipAngles, 5)
-    smoothDataUsingMovingAverage(rightAnkleAngles, 5)
-    smoothDataUsingMovingAverage(leftAnkleAngles, 5)
-    smoothDataUsingMovingAverage(torsoAngles, 5)
-    smoothDataUsingMovingAverage(strideAngles, 5)
+    smoothAllAngleData()
 
     extractGaitFeatures(context, width, height, frameIndex, activity)
 
@@ -1186,12 +981,23 @@ private suspend fun extractGaitFeatures(
 }
 
 /**
- * Reprocess frames with ROI tracking enabled.
+ * EXPERIMENTAL/OFF - Reprocess frames with ROI tracking enabled.
+ * 
+ * STATUS: Non-functional in current implementation. Do not enable enableROIRetry.
  * 
  * Mirrors PC pattern where video is re-extracted with use_roi_tracking=True.
  * Uses the ROITracker state machine: ACQUIRE -> TRACK -> EXPAND -> REACQUIRE
  * 
- * @return Pair of (PoseSequence, list of PoseFrames) or null if failed
+ * KNOWN ISSUE: This function requires frameList to be populated, but the fast
+ * MediaCodec path streams frames without storing them. frameList is cleared
+ * but never populated, so this function always returns null immediately.
+ * 
+ * TO FIX (future work):
+ *   Option A: Store frames during fast path (memory expensive ~500MB for 10s video)
+ *   Option B: Re-decode video in this function (slower but correct)
+ *   Option C: Implement ROI tracking inline during first pass
+ * 
+ * @return Pair of (PoseSequence, list of PoseFrames) or null if failed (always null currently)
  */
 private suspend fun reprocessWithRoiTracking(
     context: Context,
@@ -1201,6 +1007,7 @@ private suspend fun reprocessWithRoiTracking(
     fps: Float,
     activity: AppCompatActivity
 ): Pair<PoseSequence, List<PoseFrame>>? {
+    // BUG: frameList is always empty in fast path - see docstring above
     if (frameList.isEmpty()) return null
     
     val backend = mediaPipeBackend ?: return null

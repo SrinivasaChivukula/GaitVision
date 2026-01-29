@@ -55,5 +55,8 @@ var videoLength: Long = 0
 
 // Video processing options (mirrors PC pipeline options)
 var enableCLAHE: Boolean = false  // CLAHE disabled - testing without for parity comparison
-var enableROIRetry: Boolean = true  // Retry with ROI tracking if first pass fails
+var enableROIRetry: Boolean = false  // EXPERIMENTAL/OFF - ROI retry is non-functional, see reprocessWithRoiTracking docstring
 var forceCpuInference: Boolean = true  // Force CPU inference for parity with PC (GPU can produce slight differences)
+
+// Debug options
+var enableVerboseLogging: Boolean = false  // Enable detailed per-frame logging (expensive, disable for production)
