@@ -784,6 +784,7 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
                     outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         if (!muxerStarted) {
                             trackIndex = mediaMuxer.addTrack(encoder.outputFormat)
+                            mediaMuxer.setOrientationHint(0)
                             mediaMuxer.start()
                             muxerStarted = true
                         }
