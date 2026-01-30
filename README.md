@@ -29,7 +29,7 @@ GaitVision implements a video-based gait analysis pipeline on Android (API 24+) 
 ## Features
 
 ### Capabilities
-- Video input from camera or device storage
+- Video input from camera(WIP) or device storage
 - 16 gait features: cadence, stride time/length, knee ROM, movement smoothness (LDJ), trunk stability, asymmetry metrics
 - Pose wireframe and angle overlay visualization
 - Time-series charts for joint angles and gait signals
@@ -37,10 +37,10 @@ GaitVision implements a video-based gait analysis pipeline on Android (API 24+) 
 - CSV export of features and angle data
 
 ### Analysis
-1. MediaPipe extracts 33 landmarks per frame from input video
+1. MediaPipe extracts 33 landmarks per frame from input video, currently only using 6 to extract signals and features
 2. Computes joint angles, inter-ankle distance, velocities; applies EMA smoothing and interpolation
 3. Three detection modes (inter-ankle distance, ankle velocity, knee angle) evaluated; best mode selected automatically
-4. Calculates 16 features from detected stride cycles (temporal, spatial, kinematic, smoothness)
+4. Calculates 16 features from detected stride cycles (temporal, spatial, kinematic, smoothness). Feature data is only gathered from chosen gait cycles
 5. Three models (Autoencoder, PCA, Ridge) generate independent scores (0-100 scale)
 
 ---
@@ -78,10 +78,20 @@ GaitVision implements a video-based gait analysis pipeline on Android (API 24+) 
 3. Click "Install" and allow installation from unknown sources if prompted
 4. Grant all required permissions when prompted
 
-### Build from Source
+### Preferred Method (Android Studio)
+
+1. Clone or download the repository
+2. Open the project in Android Studio
+3. Wait for Gradle sync to complete
+4. Connect an Android device via USB
+5. Enable USB debugging on the device
+6. Alternatively, Android Studio emulators work but may have degraded performance during video processing
+
+
+### Build from Source (Outdated, Untested)
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/SrinivasaChivukula/GaitVision
 cd GaitVision
 ./gradlew build
 ./gradlew installDebug
@@ -104,7 +114,7 @@ cd GaitVision
 3. Record walking pattern:
    - Have the participant walk normally
    - Ensure at least 2 complete gait cycles (approximately 5 seconds)
-   - Record from a side view for best results
+   - Record from a side view
 
 4. Perform analysis:
    - Click "Perform Analysis" to process the video
