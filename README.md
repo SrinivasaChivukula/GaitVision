@@ -17,6 +17,7 @@ An Android application for clinical gait assessment using computer vision and ma
 - [Dataset & Validation](#dataset--validation)
 + [Dataset & Validation](#dataset-validation)
 - [References](#References)
++ [References](#references)
 - [Acknowledgments](#acknowledgments)
 
 ---
