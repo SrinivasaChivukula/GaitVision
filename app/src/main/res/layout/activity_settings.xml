@@ -27,7 +27,7 @@
                 android:src="@android:drawable/ic_menu_revert"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Back"
-                app:tint="#FFFFFF" />
+                app:tint="@color/white" />
 
             <TextView
                 android:layout_width="0dp"

@@ -27,7 +27,7 @@
                 android:src="@android:drawable/ic_menu_revert"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Back"
-                app:tint="#FFFFFF" />
+                app:tint="@color/white" />
 
             <TextView
                 android:layout_width="0dp"
@@ -66,7 +66,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Height"
+            android:text="Height *"
             android:textColor="#AAAAAA"
             android:textSize="14sp"
             android:layout_marginBottom="4dp" />
@@ -78,13 +78,19 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="16dp">
 
-            <Spinner
-                android:id="@+id/spinnerFeet"
+            <EditText
+                android:id="@+id/etFeet"
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:background="@drawable/spinner_background"
-                android:textColor="@color/white" />
+                android:background="@drawable/edit_text_background"
+                android:textColor="@color/white"
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-8"
+                android:maxLength="1" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -93,13 +99,19 @@
                 android:textColor="#AAAAAA"
                 android:textSize="16sp" />
 
-            <Spinner
-                android:id="@+id/spinnerInches"
+            <EditText
+                android:id="@+id/etInches"
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:background="@drawable/spinner_background"
-                android:textColor="@color/white" />
+                android:background="@drawable/edit_text_background"
+                android:textColor="@color/white"
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-11"
+                android:maxLength="2" />
 
             <TextView
                 android:layout_width="wrap_content"

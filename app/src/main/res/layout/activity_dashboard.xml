@@ -61,7 +61,7 @@
                     android:layout_width="32dp"
                     android:layout_height="32dp"
                     android:src="@drawable/ic_search_person"
-                    android:tint="@color/primary_blue"
+                    app:tint="@color/primary_blue"
                     android:layout_marginBottom="8dp" />
 
                 <TextView
@@ -98,7 +98,7 @@
                     android:layout_width="32dp"
                     android:layout_height="32dp"
                     android:src="@drawable/ic_person_add"
-                    android:tint="@color/accent_emerald"
+                    app:tint="@color/accent_emerald"
                     android:layout_marginBottom="8dp" />
 
                 <TextView

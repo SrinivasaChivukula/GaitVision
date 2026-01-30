@@ -1,18 +1,13 @@
 package GaitVision.com.ui
 
 import android.content.Intent
-import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.os.Bundle
-import android.view.ViewGroup
-import android.widget.ArrayAdapter
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.Spinner
-import android.view.View
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,8 +32,8 @@ import GaitVision.com.stepSignalMode
 class QuickAnalysisActivity : AppCompatActivity() {
 
     private lateinit var videoPreview: ImageView
-    private lateinit var feetSpinner: Spinner
-    private lateinit var inchesSpinner: Spinner
+    private lateinit var etFeet: EditText
+    private lateinit var etInches: EditText
     private lateinit var participantIdInput: EditText
 
     private val videoPickerLauncher: ActivityResultLauncher<Intent> =
@@ -53,7 +48,6 @@ class QuickAnalysisActivity : AppCompatActivity() {
         resetGlobalState()
         initializeViews()
         setupBackButton()
-        setupSpinners()
         setupButtons()
     }
 
@@ -89,48 +83,15 @@ class QuickAnalysisActivity : AppCompatActivity() {
 
     private fun initializeViews() {
         videoPreview = findViewById(R.id.ivVideoPreview)
-        feetSpinner = findViewById(R.id.spinnerFeet)
-        inchesSpinner = findViewById(R.id.spinnerInches)
+        etFeet = findViewById(R.id.etFeet)
+        etInches = findViewById(R.id.etInches)
         participantIdInput = findViewById(R.id.etParticipantId)
+        
+        // Set default height values
+        etFeet.setText("5")
+        etInches.setText("9")
     }
 
-    private fun setupSpinners() {
-        val feetArray = arrayOf("4", "5", "6", "7")
-        val feetAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, feetArray) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getDropDownView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-        }
-        feetAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        feetSpinner.adapter = feetAdapter
-        feetSpinner.setSelection(1)
-
-        val inchesArray = (0..11).map { it.toString() }.toTypedArray()
-        val inchesAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, inchesArray) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-
-            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val view = super.getDropDownView(position, convertView, parent)
-                (view as TextView).setTextColor(Color.WHITE)
-                return view
-            }
-        }
-        inchesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        inchesSpinner.adapter = inchesAdapter
-        inchesSpinner.setSelection(9)
-    }
 
     private fun setupButtons() {
         findViewById<Button>(R.id.btnRecord).setOnClickListener {
@@ -163,18 +124,34 @@ class QuickAnalysisActivity : AppCompatActivity() {
     private fun validateAndSaveInputs(): Boolean {
         val id = participantIdInput.text.toString().trim()
         if (id.isEmpty()) {
-            Toast.makeText(this, "Please enter a Participant ID", Toast.LENGTH_SHORT).show()
+            participantIdInput.error = "Participant ID is required"
+            participantIdInput.requestFocus()
             return false
         }
 
-        val feet = feetSpinner.selectedItem.toString().toIntOrNull() ?: 5
-        val inches = inchesSpinner.selectedItem.toString().toIntOrNull() ?: 9
+        // Validate feet and inches using same logic as PatientCreateActivity
+        for ((editText, name, max) in listOf(
+            Triple(etFeet, "Feet", 8),
+            Triple(etInches, "Inches", 11)
+        )) {
+            val str = editText.text.toString().trim()
+            if (str.isEmpty()) {
+                editText.error = "$name is required"
+                editText.requestFocus()
+                return false
+            }
+
+            val value = str.toIntOrNull()
+            if (value == null || value < 0 || value > max) {
+                editText.error = "$name must be between 0 and $max"
+                editText.requestFocus()
+                return false
+            }
+        }
+
+        val feet = etFeet.text.toString().trim().toInt()
+        val inches = etInches.text.toString().trim().toInt()
         val heightInInches = (feet * 12) + inches
-
-        if (heightInInches <= 0) {
-            Toast.makeText(this, "Please select a valid height", Toast.LENGTH_SHORT).show()
-            return false
-        }
 
         participantId = id.toInt()
         participantHeight = heightInInches
@@ -203,8 +180,10 @@ class QuickAnalysisActivity : AppCompatActivity() {
                 val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
                 videoPreview.setImageBitmap(frame)
                 retriever.release()
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (e: IllegalArgumentException) {
+                Log.e("QuickAnalysisActivity", "Invalid video URI or format", e)
+            } catch (e: RuntimeException) {
+                Log.e("QuickAnalysisActivity", "Error accessing video file", e)
             }
         }
     }
