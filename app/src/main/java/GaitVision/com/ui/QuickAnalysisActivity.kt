@@ -174,16 +174,17 @@ class QuickAnalysisActivity : AppCompatActivity() {
 
     private fun updateVideoPreview() {
         galleryUri?.let { uri ->
+            val retriever = MediaMetadataRetriever()
             try {
-                val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(this, uri)
                 val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
                 videoPreview.setImageBitmap(frame)
-                retriever.release()
             } catch (e: IllegalArgumentException) {
                 Log.e("QuickAnalysisActivity", "Invalid video URI or format", e)
             } catch (e: RuntimeException) {
                 Log.e("QuickAnalysisActivity", "Error accessing video file", e)
+            } finally {
+                retriever.release()
             }
         }
     }
