@@ -83,7 +83,7 @@ GaitVision implements a video-based gait analysis pipeline on Android (API 24+) 
 ### Build from Source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/SrinivasaChivukula/GaitVision/
 cd GaitVision
 ./gradlew build
 ./gradlew installDebug
