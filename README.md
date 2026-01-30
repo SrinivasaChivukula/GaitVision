@@ -15,7 +15,9 @@ An Android application for clinical gait assessment using computer vision and ma
 - [Installation](#installation)
 - [Usage](#usage)
 - [Dataset & Validation](#dataset--validation)
++ [Dataset & Validation](#dataset-validation)
 - [References](#References)
++ [References](#references)
 - [Acknowledgments](#acknowledgments)
 
 ---
@@ -91,7 +93,7 @@ GaitVision implements a video-based gait analysis pipeline on Android (API 24+) 
 ### Build from Source (Outdated, Untested)
 
 ```bash
-git clone https://github.com/SrinivasaChivukula/GaitVision
+git clone https://github.com/SrinivasaChivukula/GaitVision/
 cd GaitVision
 ./gradlew build
 ./gradlew installDebug
