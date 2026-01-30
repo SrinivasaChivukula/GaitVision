@@ -40,7 +40,7 @@
         </activity>
 
         <activity
-            android:name="GaitVision.com.ui.VideoPickerActivity"
+            android:name="GaitVision.com.ui.QuickAnalysisActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.GaitVision"
@@ -48,11 +48,19 @@
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
         <activity
+            android:name="GaitVision.com.ui.VideoPickerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.QuickAnalysisActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <activity
             android:name="GaitVision.com.ui.AnalysisActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.GaitVision"
-            android:parentActivityName="GaitVision.com.ui.DashboardActivity"
+            android:parentActivityName="GaitVision.com.ui.QuickAnalysisActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
         <activity android:name="GaitVision.com.ui.ResultsActivity"
             android:exported="false"
@@ -90,6 +98,31 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.GaitVision"
             android:parentActivityName="GaitVision.com.ui.PatientListActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <!-- Utility Activities -->
+        <activity
+            android:name="GaitVision.com.ui.HelpActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.DashboardActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <activity
+            android:name="GaitVision.com.ui.InfoActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.DashboardActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
+        <activity
+            android:name="GaitVision.com.ui.SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.DashboardActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
         <provider

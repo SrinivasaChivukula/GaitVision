@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A2E"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="24dp">
+
+            <ImageButton
+                android:id="@+id/btnBack"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back"
+                app:tint="@color/white" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Quick Analysis"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <!-- Participant ID Input -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Participant ID"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etParticipantId"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/edit_text_background"
+            android:hint="Enter participant ID"
+            android:textColorHint="#666666"
+            android:textColor="@color/white"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:inputType="text"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Height Selection -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Height *"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <EditText
+                android:id="@+id/etFeet"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/edit_text_background"
+                android:textColor="@color/white"
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-8"
+                android:maxLength="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="  ft  "
+                android:textColor="#AAAAAA"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/etInches"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:background="@drawable/edit_text_background"
+                android:textColor="@color/white"
+                android:textColorHint="#666666"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="number"
+                android:hint="0-11"
+                android:maxLength="2" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="  in"
+                android:textColor="#AAAAAA"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <!-- Video Preview -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="180dp"
+            android:background="@drawable/card_background"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:id="@+id/ivVideoPreview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="Video preview" />
+
+            <LinearLayout
+                android:id="@+id/tvVideoPlaceholder"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/baseline_videocam_24"
+                    app:tint="#666666"
+                    android:layout_marginEnd="8dp"
+                    android:contentDescription="Video icon" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="No video selected"
+                    android:textColor="#666666"
+                    android:textSize="16sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Video Selection Buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRecord"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Record"
+                android:textSize="16sp"
+                android:textColor="@color/white"
+                android:backgroundTint="#00000000"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:strokeColor="#4FC3F7"
+                app:strokeWidth="1dp"
+                app:cornerRadius="8dp"
+                android:layout_marginEnd="8dp"
+                app:icon="@drawable/baseline_videocam_24"
+                app:iconTint="@color/white"
+                app:iconPadding="8dp"
+                app:iconGravity="start" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSelect"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="Select"
+                android:textSize="16sp"
+                android:textColor="@color/white"
+                android:backgroundTint="#00000000"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:strokeColor="#4FC3F7"
+                app:strokeWidth="1dp"
+                app:cornerRadius="8dp"
+                android:layout_marginStart="8dp"
+                app:icon="@drawable/ic_folder_24"
+                app:iconTint="@color/white"
+                app:iconPadding="8dp"
+                app:iconGravity="start" />
+        </LinearLayout>
+
+        <!-- Analyze Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAnalyze"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Run Gait Analysis"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:backgroundTint="#4CAF50"
+            app:cornerRadius="12dp"
+            android:layout_marginBottom="12dp"
+            app:icon="@drawable/ic_science_24"
+            app:iconTint="@color/white"
+            app:iconPadding="12dp"
+            app:iconGravity="start" />
+
+        <!-- View Results Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnViewResults"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="View Last Results"
+            android:textSize="16sp"
+            android:textColor="#4FC3F7"
+            android:backgroundTint="#00000000"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:strokeColor="#4FC3F7"
+            app:strokeWidth="1dp"
+            app:cornerRadius="8dp"
+            app:icon="@drawable/ic_bar_chart_24"
+            app:iconTint="#4FC3F7"
+            app:iconPadding="8dp"
+            app:iconGravity="start" />
+
+    </LinearLayout>
+</ScrollView>
