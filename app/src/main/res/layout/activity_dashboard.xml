@@ -36,15 +36,6 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Patient Management Section -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Patient Management"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="12dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -70,6 +61,7 @@
                     android:layout_width="32dp"
                     android:layout_height="32dp"
                     android:src="@drawable/ic_search_person"
+                    android:tint="@color/primary_blue"
                     android:layout_marginBottom="8dp" />
 
                 <TextView
@@ -106,6 +98,7 @@
                     android:layout_width="32dp"
                     android:layout_height="32dp"
                     android:src="@drawable/ic_person_add"
+                    android:tint="@color/accent_emerald"
                     android:layout_marginBottom="8dp" />
 
                 <TextView
@@ -125,212 +118,168 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Divider -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#333333"
-            android:layout_marginBottom="24dp" />
-
-        <!-- Quick Analysis Section -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Quick Analysis"
-            android:textColor="@color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="12dp" />
-
-        <!-- Participant ID Input -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Participant ID"
-            android:textColor="#AAAAAA"
-            android:textSize="14sp"
-            android:layout_marginBottom="4dp" />
-
-        <EditText
-            android:id="@+id/etParticipantId"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:background="@drawable/edit_text_background"
-            android:hint="Enter participant ID"
-            android:textColorHint="#666666"
-            android:textColor="@color/white"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:inputType="text"
-            android:layout_marginBottom="12dp" />
-
-        <!-- Height Selection -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Height"
-            android:textColor="#AAAAAA"
-            android:textSize="14sp"
-            android:layout_marginBottom="4dp" />
-
+        <!-- Quick Actions Section -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="12dp">
 
-            <Spinner
-                android:id="@+id/spinnerFeet"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:background="@drawable/spinner_background"
-                android:textColor="@color/white" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="  ft  "
-                android:textColor="#AAAAAA"
-                android:textSize="16sp" />
-
-            <Spinner
-                android:id="@+id/spinnerInches"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:background="@drawable/spinner_background"
-                android:textColor="@color/white" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="  in"
-                android:textColor="#AAAAAA"
-                android:textSize="16sp" />
-        </LinearLayout>
-
-        <!-- Video Preview -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="180dp"
-            android:background="@drawable/card_background"
-            android:layout_marginBottom="16dp">
-
-            <ImageView
-                android:id="@+id/ivVideoPreview"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:contentDescription="Video preview" />
-
+            <!-- Quick Analysis -->
             <LinearLayout
-                android:id="@+id/tvVideoPlaceholder"
-                android:layout_width="wrap_content"
+                android:id="@+id/cardQuickAnalysis"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="@drawable/card_background"
+                android:padding="16dp"
+                android:layout_marginEnd="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
                 <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/baseline_videocam_24"
-                    app:tint="#666666"
-                    android:layout_marginEnd="8dp"
-                    android:contentDescription="Video icon" />
-                
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_directions_walk_24"
+                    android:tint="@color/secondary_teal"
+                    android:layout_marginBottom="8dp" />
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="No video selected"
-                    android:textColor="#666666"
-                    android:textSize="16sp" />
-            </LinearLayout>
-        </FrameLayout>
+                    android:text="Quick Analysis"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
-        <!-- Video Selection Buttons -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Analyze gait quickly"
+                    android:textColor="#888888"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Help/Tutorial -->
+            <LinearLayout
+                android:id="@+id/cardHelp"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="@drawable/card_background"
+                android:padding="16dp"
+                android:layout_marginStart="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_help_24"
+                    android:tint="@color/accent_amber"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Help/Tutorial"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Learn how to use app"
+                    android:textColor="#888888"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="12dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRecord"
+            <!-- Info -->
+            <LinearLayout
+                android:id="@+id/cardInfo"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Record"
-                android:textSize="16sp"
-                android:textColor="@color/white"
-                android:backgroundTint="#00000000"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:strokeColor="#4FC3F7"
-                app:strokeWidth="1dp"
-                app:cornerRadius="8dp"
+                android:orientation="vertical"
+                android:background="@drawable/card_background"
+                android:padding="16dp"
                 android:layout_marginEnd="8dp"
-                app:icon="@drawable/baseline_videocam_24"
-                app:iconTint="@color/white"
-                app:iconPadding="8dp"
-                app:iconGravity="start" />
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSelect"
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/baseline_info_24"
+                    android:tint="@color/primary_blue"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Info"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="About the app"
+                    android:textColor="#888888"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- Settings -->
+            <LinearLayout
+                android:id="@+id/cardSettings"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Select"
-                android:textSize="16sp"
-                android:textColor="@color/white"
-                android:backgroundTint="#00000000"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:strokeColor="#4FC3F7"
-                app:strokeWidth="1dp"
-                app:cornerRadius="8dp"
+                android:orientation="vertical"
+                android:background="@drawable/card_background"
+                android:padding="16dp"
                 android:layout_marginStart="8dp"
-                app:icon="@drawable/ic_folder_24"
-                app:iconTint="@color/white"
-                app:iconPadding="8dp"
-                app:iconGravity="start" />
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/baseline_settings_24"
+                    android:tint="@color/text_secondary"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Settings"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Configure preferences"
+                    android:textColor="#888888"
+                    android:textSize="12sp" />
+            </LinearLayout>
         </LinearLayout>
-
-        <!-- Analyze Button -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnAnalyze"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Run Gait Analysis"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:backgroundTint="#4CAF50"
-            app:cornerRadius="12dp"
-            android:layout_marginBottom="12dp"
-            app:icon="@drawable/ic_science_24"
-            app:iconTint="@color/white"
-            app:iconPadding="12dp"
-            app:iconGravity="start" />
-
-        <!-- View Results Button -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnViewResults"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="View Last Results"
-            android:textSize="16sp"
-            android:textColor="#4FC3F7"
-            android:backgroundTint="#00000000"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            app:strokeColor="#4FC3F7"
-            app:strokeWidth="1dp"
-            app:cornerRadius="8dp"
-            app:icon="@drawable/ic_bar_chart_24"
-            app:iconTint="#4FC3F7"
-            app:iconPadding="8dp"
-            app:iconGravity="start" />
 
     </LinearLayout>
 </ScrollView>
-
