@@ -2,16 +2,17 @@ package GaitVision.com.gait
 
 import android.util.Log
 import GaitVision.com.enableVerboseLogging
+import GaitVision.com.getLRSwapIndex
 import GaitVision.com.mediapipe.MediaPipePoseBackend
-import GaitVision.com.mediapipe.PoseFrame
 import GaitVision.com.mediapipe.PoseSequence
 import kotlin.math.*
 
 /**
  * Feature Extractor for Gait Analysis - Kotlin port of PC pipeline (pc_tasks/feature_extractor.py).
  * 
- * Extracts 16 scalar gait features from pose sequences.
- * Includes multi-mode step detection and quality-based stride selection.
+ * Extracts gait features from pose sequences.
+ * Uses inter-ankle distance as the single step detection signal.
+ * Quality-based stride selection picks the best two consecutive cycles.
  */
 class FeatureExtractor(
     private val minConfidence: Float = GaitConfig.MIN_CONFIDENCE,
@@ -21,10 +22,6 @@ class FeatureExtractor(
     private val maxStepTimeS: Float = GaitConfig.MAX_STEP_TIME_S,
     private val stepDistanceFactor: Float = GaitConfig.STEP_DISTANCE_FACTOR,
     private val stepProminenceFactor: Float = GaitConfig.STEP_PROMINENCE_FACTOR,
-    private val validFramePct: Float = GaitConfig.VALID_FRAME_PCT,
-    private val stepTimeTolerance: Float = GaitConfig.STEP_TIME_TOLERANCE,
-    private val kneeRomMin: Float = GaitConfig.KNEE_ROM_MIN,
-    private val kneeRomMax: Float = GaitConfig.KNEE_ROM_MAX,
     private val useRobustExtrema: Boolean = GaitConfig.USE_ROBUST_EXTREMA,
     private val extremaPercentileLo: Float = GaitConfig.EXTREMA_PERCENTILE_LO,
     private val extremaPercentileHi: Float = GaitConfig.EXTREMA_PERCENTILE_HI
@@ -43,35 +40,10 @@ class FeatureExtractor(
         )
     }
     
-    // Debug counter to avoid log spam
-    private var periodicityDebugCount = 0
-    
-    /**
-     * Step signal detection modes - all are leg-swap robust.
-     */
-    enum class StepSignalMode(val value: String) {
-        INTER_ANKLE("inter_ankle"),
-        MAX_ANKLE_VY("max_ankle_vy"),
-        MIN_KNEE_ANGLE("min_knee_angle")
-    }
-    
-    /**
-     * Quality metrics for a step signal mode.
-     */
-    data class StepSignalQuality(
-        val mode: StepSignalMode,
-        val peakCount: Int,
-        val periodicityScore: Float,
-        val confidenceCoverage: Float,
-        val finalScore: Float,
-        val rejectionReason: String = ""
-    )
-    
     /**
      * Extract gait features from pose sequence.
      */
     fun extract(poseSeq: PoseSequence): Pair<GaitFeatures?, GaitDiagnostics> {
-        periodicityDebugCount = 0  // Reset for each video
         Log.d(TAG, "=== VIDEO INFO ===")
         Log.d(TAG, "  numFramesTotal: ${poseSeq.numFramesTotal}")
         Log.d(TAG, "  detectedFrames: ${poseSeq.frames.size}")
@@ -105,13 +77,9 @@ class FeatureExtractor(
         // Step 4: Compute velocities
         signals = computeVelocities(signals, poseSeq.fps)
         
-        // Step 5: Determine near leg
-        val nearLeg = determineNearLeg(poseSeq)
-        
-        // Step 6: Multi-mode step detection
-        val (stepMode, stepSignal, modeScores) = selectStepSignalMode(signals, poseSeq, nearLeg, poseSeq.fps)
-        val steps = detectStepsFromSignal(stepSignal, poseSeq.fps)
-        Log.d(TAG, "Step signal mode: ${stepMode.value}, detected ${steps.size} steps")
+        // Step 5: Detect steps from inter-ankle distance (single signal, always)
+        val steps = detectStepsFromSignal(signals.interAnkleDist, poseSeq.fps)
+        Log.d(TAG, "Step detection: inter_ankle (single signal), detected ${steps.size} steps")
         
         // Verbose per-frame logging (expensive - only enable for debugging)
         if (enableVerboseLogging) {
@@ -153,10 +121,10 @@ class FeatureExtractor(
             
             Log.d(TAG, "")
             Log.d(TAG, "========== VERBOSE DEBUG: STEP SIGNAL ==========")
-            Log.d(TAG, "Near leg: $nearLeg, Mode: ${stepMode.value}")
+            Log.d(TAG, "Mode: inter_ankle (single signal)")
             Log.d(TAG, "frame,value")
-            for (i in stepSignal.indices) {
-                Log.d(TAG, "$i,${String.format("%.6f", stepSignal[i])}")
+            for (i in signals.interAnkleDist.indices) {
+                Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])}")
             }
             Log.d(TAG, "DETECTED PEAKS: ${steps.map { it.frameIdx }}")
             Log.d(TAG, "PEAK TIMES: ${steps.map { String.format("%.3f", it.timeS) }}")
@@ -164,27 +132,26 @@ class FeatureExtractor(
         
         if (steps.size < 4) {
             return Pair(null, createDiagnostics(poseSeq, QualityFlag.NO_CYCLES, 
-                "only_${steps.size}_steps", steps.size, stepMode = stepMode.value))
+                "only_${steps.size}_steps", steps.size))
         }
         
-        // Step 7: Segment strides
+        // Step 6: Segment strides
         val strides = segmentStrides(steps, signals, poseSeq.fps)
         
-        // Step 8: Validate strides
+        // Step 7: Soft-score all strides (no hard gates — only degenerate strides filtered)
         val validatedStrides = validateStrides(strides, signals, poseSeq.fps)
         val validStrides = validatedStrides.filter { it.isValid }
-        Log.d(TAG, "Valid strides: ${validStrides.size}")
+        Log.d(TAG, "Scored strides: ${validStrides.size} valid of ${validatedStrides.size}")
         
         if (validStrides.size < 2) {
             return Pair(null, createDiagnostics(poseSeq, QualityFlag.NO_CYCLES, 
-                "only_${validStrides.size}_valid_strides", steps.size, validStrides.size, stepMode = stepMode.value))
+                "only_${validStrides.size}_valid_strides", steps.size, validStrides.size))
         }
         
-        // Step 9: Quality-based stride selection and feature computation
+        // Step 8: Quality-based stride selection and feature computation
         val (features, selectionReason, selectedIndices) = computeFeatures(signals, validStrides, poseSeq)
         
         val qualityFlag = when {
-            features.valid_stride_count == 0 && validStrides.size >= 2 -> QualityFlag.NO_CYCLES
             features.valid_stride_count == 0 -> QualityFlag.NO_CYCLES
             else -> QualityFlag.OK
         }
@@ -192,7 +159,6 @@ class FeatureExtractor(
         val diagnostics = createDiagnostics(
             poseSeq, qualityFlag, "",
             steps.size, validStrides.size,
-            stepMode = stepMode.value,
             selectionReason = selectionReason
         )
         
@@ -200,7 +166,7 @@ class FeatureExtractor(
         GaitVision.com.extractedSignals = signals
         GaitVision.com.extractedStrides = validatedStrides
         GaitVision.com.selectedStrideIndices = selectedIndices
-        GaitVision.com.stepSignalMode = stepMode.value
+        GaitVision.com.stepSignalMode = "inter_ankle"
         
         if (features.valid_stride_count == 0) {
             return Pair(null, diagnostics)
@@ -255,7 +221,7 @@ class FeatureExtractor(
             val flippedConfidences = FloatArray(33)
             
             for (i in 0 until 33) {
-                val swapIdx = getSwapIndex(i)
+                val swapIdx = getLRSwapIndex(i)
                 flippedKeypoints[swapIdx][0] = 1f - frame.keypoints[i][0]
                 flippedKeypoints[swapIdx][1] = frame.keypoints[i][1]
                 flippedConfidences[swapIdx] = frame.confidences[i]
@@ -269,28 +235,6 @@ class FeatureExtractor(
             walkingDirection = direction,
             wasFlipped = true
         )
-    }
-    
-    private fun getSwapIndex(idx: Int): Int {
-        return when (idx) {
-            1 -> 4; 4 -> 1
-            2 -> 5; 5 -> 2
-            3 -> 6; 6 -> 3
-            7 -> 8; 8 -> 7
-            9 -> 10; 10 -> 9
-            11 -> 12; 12 -> 11
-            13 -> 14; 14 -> 13
-            15 -> 16; 16 -> 15
-            17 -> 18; 18 -> 17
-            19 -> 20; 20 -> 19
-            21 -> 22; 22 -> 21
-            23 -> 24; 24 -> 23
-            25 -> 26; 26 -> 25
-            27 -> 28; 28 -> 27
-            29 -> 30; 30 -> 29
-            31 -> 32; 32 -> 31
-            else -> idx
-        }
     }
     
     // =========================================================================
@@ -601,344 +545,11 @@ class FeatureExtractor(
         return if (leftConfSum >= rightConfSum) "left" else "right"
     }
     
-    private fun computeStepSignal(
-        signals: Signals,
-        poseSeq: PoseSequence,
-        mode: StepSignalMode
-    ): FloatArray {
-        val n = poseSeq.numFramesTotal
-        val minConf = 0.15f
-        
-        return when (mode) {
-            StepSignalMode.INTER_ANKLE -> {
-                signals.interAnkleDist.copyOf()
-            }
-            
-            StepSignalMode.MAX_ANKLE_VY -> {
-                val ankleLeftY = FloatArray(n) { Float.NaN }
-                val ankleRightY = FloatArray(n) { Float.NaN }
-                
-                for (frame in poseSeq.frames) {
-                    if (frame.confidences[MediaPipePoseBackend.LEFT_ANKLE] >= minConf) {
-                        ankleLeftY[frame.frameIdx] = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE][1]
-                    }
-                    if (frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE] >= minConf) {
-                        ankleRightY[frame.frameIdx] = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE][1]
-                    }
-                }
-                
-                smoothSignalSegmentAware(ankleLeftY, 5)
-                smoothSignalSegmentAware(ankleRightY, 5)
-                
-                val dt = 1f / poseSeq.fps
-                val vyLeft = FloatArray(n) { Float.NaN }
-                val vyRight = FloatArray(n) { Float.NaN }
-                
-                for (i in 1 until n) {
-                    if (!ankleLeftY[i].isNaN() && !ankleLeftY[i-1].isNaN()) {
-                        vyLeft[i] = -(ankleLeftY[i] - ankleLeftY[i-1]) / dt
-                    }
-                    if (!ankleRightY[i].isNaN() && !ankleRightY[i-1].isNaN()) {
-                        vyRight[i] = -(ankleRightY[i] - ankleRightY[i-1]) / dt
-                    }
-                }
-                
-                FloatArray(n) { i ->
-                    when {
-                        vyLeft[i].isNaN() && vyRight[i].isNaN() -> Float.NaN
-                        vyLeft[i].isNaN() -> vyRight[i]
-                        vyRight[i].isNaN() -> vyLeft[i]
-                        else -> maxOf(vyLeft[i], vyRight[i])
-                    }
-                }
-            }
-            
-            StepSignalMode.MIN_KNEE_ANGLE -> {
-                val kneeLeft = FloatArray(n) { Float.NaN }
-                val kneeRight = FloatArray(n) { Float.NaN }
-                
-                for (frame in poseSeq.frames) {
-                    val kp = frame.keypoints
-                    
-                    val leftConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.LEFT_HIP],
-                        frame.confidences[MediaPipePoseBackend.LEFT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
-                    )
-                    if (leftConf >= minConf) {
-                        kneeLeft[frame.frameIdx] = computeAngle(
-                            kp[MediaPipePoseBackend.LEFT_HIP],
-                            kp[MediaPipePoseBackend.LEFT_KNEE],
-                            kp[MediaPipePoseBackend.LEFT_ANKLE]
-                        )
-                    }
-                    
-                    val rightConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.RIGHT_HIP],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
-                    )
-                    if (rightConf >= minConf) {
-                        kneeRight[frame.frameIdx] = computeAngle(
-                            kp[MediaPipePoseBackend.RIGHT_HIP],
-                            kp[MediaPipePoseBackend.RIGHT_KNEE],
-                            kp[MediaPipePoseBackend.RIGHT_ANKLE]
-                        )
-                    }
-                }
-                
-                smoothSignalSegmentAware(kneeLeft, 5)
-                smoothSignalSegmentAware(kneeRight, 5)
-                
-                // Min knee angle, inverted so peaks = max flexion
-                FloatArray(n) { i ->
-                    when {
-                        kneeLeft[i].isNaN() && kneeRight[i].isNaN() -> Float.NaN
-                        kneeLeft[i].isNaN() -> 180f - kneeRight[i]
-                        kneeRight[i].isNaN() -> 180f - kneeLeft[i]
-                        else -> 180f - minOf(kneeLeft[i], kneeRight[i])
-                    }
-                }
-            }
-        }
-    }
     
-    private fun smoothSignalSegmentAware(signal: FloatArray, maxGap: Int, alpha: Float = 0.3f) {
-        var i = 0
-        while (i < signal.size) {
-            while (i < signal.size && signal[i].isNaN()) i++
-            if (i >= signal.size) break
-            
-            val start = i
-            var gapCount = 0
-            while (i < signal.size) {
-                if (!signal[i].isNaN()) {
-                    gapCount = 0
-                    i++
-                } else if (gapCount < maxGap) {
-                    gapCount++
-                    i++
-                } else {
-                    break
-                }
-            }
-            val end = i - gapCount
-            
-            if (end - start >= 3) {
-                var prev = Float.NaN
-                for (j in start until end) {
-                    if (!signal[j].isNaN()) {
-                        if (prev.isNaN()) {
-                            prev = signal[j]
-                        } else {
-                            signal[j] = alpha * signal[j] + (1 - alpha) * prev
-                            prev = signal[j]
-                        }
-                    }
-                }
-            }
-        }
-    }
     
-    private fun computeConfidenceCoverage(poseSeq: PoseSequence, mode: StepSignalMode): Float {
-        val minConf = 0.15f
-        val minConfBoth = 0.3f
-        var validCount = 0
-        
-        for (frame in poseSeq.frames) {
-            val isValid = when (mode) {
-                StepSignalMode.INTER_ANKLE -> {
-                    minOf(frame.confidences[MediaPipePoseBackend.LEFT_ANKLE],
-                          frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]) >= minConfBoth
-                }
-                StepSignalMode.MAX_ANKLE_VY -> {
-                    frame.confidences[MediaPipePoseBackend.LEFT_ANKLE] >= minConf ||
-                    frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE] >= minConf
-                }
-                StepSignalMode.MIN_KNEE_ANGLE -> {
-                    val leftConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.LEFT_HIP],
-                        frame.confidences[MediaPipePoseBackend.LEFT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
-                    )
-                    val rightConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.RIGHT_HIP],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
-                    )
-                    leftConf >= minConf || rightConf >= minConf
-                }
-            }
-            if (isValid) validCount++
-        }
-        
-        return if (poseSeq.numFramesTotal > 0) validCount.toFloat() / poseSeq.numFramesTotal else 0f
-    }
     
-    private fun computePeriodicityScore(signal: FloatArray, fps: Float): Float {
-        val validMask = signal.map { !it.isNaN() }.toBooleanArray()
-        val validCount = validMask.count { it }
-        if (validCount < 20) return 0f
-        
-        val indices = signal.indices.toList()
-        val validIndices = indices.filter { validMask[it] }
-        val validValues = validIndices.map { signal[it] }
-        
-        val signalInterp = FloatArray(signal.size) { i ->
-            if (validMask[i]) signal[i]
-            else {
-                val lower = validIndices.lastOrNull { it < i }
-                val upper = validIndices.firstOrNull { it > i }
-                when {
-                    lower == null -> validValues.first()
-                    upper == null -> validValues.last()
-                    else -> {
-                        val t = (i - lower).toFloat() / (upper - lower)
-                        signal[lower] + t * (signal[upper] - signal[lower])
-                    }
-                }
-            }
-        }
-        
-        val mean = signalInterp.average().toFloat()
-        val centered = FloatArray(signalInterp.size) { signalInterp[it] - mean }
-        val std = sqrt(centered.map { it * it }.average().toFloat())
-        if (std < 1e-6f) return 0f
-        
-        // Autocorrelation
-        val n = centered.size
-        val acf = FloatArray(n)
-        
-        // First compute acf[0] (the energy/variance at lag 0)
-        var acf0 = 0f
-        for (i in 0 until n) {
-            acf0 += centered[i] * centered[i]
-        }
-        if (acf0 < 1e-8f) return 0f
-        
-        // Now compute normalized autocorrelation for all lags
-        for (lag in 0 until n) {
-            var sum = 0f
-            for (i in 0 until n - lag) {
-                sum += centered[i] * centered[i + lag]
-            }
-            acf[lag] = sum / acf0
-        }
-        
-        val minLag = (fps * minStepTimeS).toInt()
-        val maxLag = minOf((fps * maxStepTimeS).toInt(), n - 1)
-        if (minLag >= maxLag) return 0f
-        
-        // Debug ACF values (first call only to avoid spam)
-        if (periodicityDebugCount < 1) {
-            Log.d(TAG, "=== PERIODICITY ACF DEBUG ===")
-            Log.d(TAG, "  ACF[0] (energy): ${String.format("%.4f", acf0)}")
-            Log.d(TAG, "  ACF normalized[0]: ${String.format("%.4f", acf[0])}")
-            Log.d(TAG, "  ACF normalized[10]: ${String.format("%.4f", acf.getOrElse(10) { 0f })}")
-            Log.d(TAG, "  ACF normalized[20]: ${String.format("%.4f", acf.getOrElse(20) { 0f })}")
-            Log.d(TAG, "  ACF normalized[30]: ${String.format("%.4f", acf.getOrElse(30) { 0f })}")
-            Log.d(TAG, "  minLag: $minLag, maxLag: $maxLag")
-            periodicityDebugCount++
-        }
-        
-        val search = acf.slice(minLag..maxLag)
-        val maxInSearch = search.maxOrNull() ?: 0f
-        val peaks = findPeaks(search.toFloatArray(), 1, 0.05f)
-        
-        val result = if (peaks.isNotEmpty()) {
-            search[peaks[0]].coerceIn(0f, 1f)
-        } else {
-            maxInSearch.coerceIn(0f, 1f) * 0.5f
-        }
-        
-        // Debug final result (first call only)
-        if (periodicityDebugCount == 1) {
-            Log.d(TAG, "  Max in search: ${String.format("%.4f", maxInSearch)}")
-            Log.d(TAG, "  Peaks found: ${peaks.size}, result: ${String.format("%.4f", result)}")
-            periodicityDebugCount++
-        }
-        
-        return result
-    }
     
-    private fun evaluateStepSignalQuality(
-        signal: FloatArray,
-        poseSeq: PoseSequence,
-        mode: StepSignalMode,
-        fps: Float
-    ): StepSignalQuality {
-        val validPct = signal.count { !it.isNaN() }.toFloat() / signal.size
-        if (validPct < 0.3f) {
-            return StepSignalQuality(mode, 0, 0f, 0f, 0f, "insufficient_valid_data")
-        }
-        
-        val signalClean = signal.map { if (it.isNaN()) 0f else it }.toFloatArray()
-        val stepFrames = estimateStepPeriod(signalClean, fps)
-        val minDistance = maxOf((stepFrames * stepDistanceFactor).toInt(), 5)
-        
-        val validVals = signalClean.filter { it != 0f }
-        val minProminence = if (validVals.isNotEmpty()) {
-            validVals.std() * stepProminenceFactor
-        } else 0.01f
-        
-        val peaks = findPeaks(signalClean, minDistance, minProminence)
-        val peakCount = peaks.size
-        
-        val periodicity = computePeriodicityScore(signal, fps)
-        val coverage = computeConfidenceCoverage(poseSeq, mode)
-        
-        val rejectionReason = if (peakCount < 4) "insufficient_peaks_$peakCount" else ""
-        
-        var finalScore = (
-            0.3f * minOf(peakCount / 6f, 1f) +
-            0.4f * periodicity +
-            0.3f * coverage
-        )
-        
-        if (rejectionReason.isNotEmpty()) {
-            finalScore *= 0.1f
-        }
-        
-        return StepSignalQuality(mode, peakCount, periodicity, coverage, finalScore, rejectionReason)
-    }
     
-    private fun selectStepSignalMode(
-        signals: Signals,
-        poseSeq: PoseSequence,
-        nearLeg: String,
-        fps: Float
-    ): Triple<StepSignalMode, FloatArray, Map<String, StepSignalQuality>> {
-        val modes = StepSignalMode.values()
-        val candidates = mutableMapOf<StepSignalMode, Pair<FloatArray, StepSignalQuality>>()
-        val modeScores = mutableMapOf<String, StepSignalQuality>()
-        
-        for (mode in modes) {
-            val signal = computeStepSignal(signals, poseSeq, mode)
-            val quality = evaluateStepSignalQuality(signal, poseSeq, mode, fps)
-            candidates[mode] = Pair(signal, quality)
-            modeScores[mode.value] = quality
-        }
-        
-        val bestMode = candidates.maxByOrNull { it.value.second.finalScore }!!.key
-        val bestQuality = candidates[bestMode]!!.second
-        
-        val selected = if (bestQuality.peakCount >= 4 && bestQuality.finalScore >= 0.2f) {
-            bestMode
-        } else {
-            candidates.maxByOrNull { it.value.second.peakCount }!!.key
-        }
-        
-        // Log all mode scores for debugging
-        Log.d(TAG, "=== STEP SIGNAL MODE SELECTION ===")
-        for ((mode, pair) in candidates) {
-            val q = pair.second
-            val marker = if (mode == selected) " [SELECTED]" else ""
-            Log.d(TAG, "  ${mode.value}: peaks=${q.peakCount}, periodicity=${String.format("%.3f", q.periodicityScore)}, " +
-                "coverage=${String.format("%.3f", q.confidenceCoverage)}, finalScore=${String.format("%.3f", q.finalScore)}$marker")
-        }
-        
-        return Triple(selected, candidates[selected]!!.first, modeScores)
-    }
     
     private fun detectStepsFromSignal(stepSignal: FloatArray, fps: Float): List<StepEvent> {
         val validPct = stepSignal.count { !it.isNaN() }.toFloat() / stepSignal.size
@@ -1098,35 +709,22 @@ class FeatureExtractor(
     // =========================================================================
     
     private fun segmentStrides(steps: List<StepEvent>, signals: Signals, fps: Float): List<Stride> {
-        val strides = mutableListOf<Stride>()
+        if (steps.size < 3) return emptyList()
+        val maxFrame = signals.timestamps.size - 1
         
-        var i = 0
-        while (i < steps.size - 1) {
-            val step1 = steps[i]
-            val step2 = steps[i + 1]
-            
-            val (endFrame, endTime) = if (i + 2 < steps.size) {
-                Pair(steps[i + 2].frameIdx, steps[i + 2].timeS)
-            } else {
-                val stepDur = step2.frameIdx - step1.frameIdx
-                Pair(step2.frameIdx + stepDur, step2.timeS + stepDur / fps)
-            }
-            
-            strides.add(Stride(
-                startFrame = step1.frameIdx,
-                endFrame = minOf(endFrame, signals.timestamps.size - 1),
-                startTimeS = step1.timeS,
-                endTimeS = endTime,
-                step1Frame = step1.frameIdx,
-                step2Frame = step2.frameIdx,
-                step1TimeS = step1.timeS,
-                step2TimeS = step2.timeS
-            ))
-            
-            i += 2
+        // Overlapping candidates: peak[i] → peak[i+2] for every i
+        return (0..steps.size - 3).map { i ->
+            Stride(
+                startFrame = steps[i].frameIdx,
+                endFrame = minOf(steps[i + 2].frameIdx, maxFrame),
+                startTimeS = steps[i].timeS,
+                endTimeS = steps[i + 2].timeS,
+                step1Frame = steps[i].frameIdx,
+                step2Frame = steps[i + 1].frameIdx,
+                step1TimeS = steps[i].timeS,
+                step2TimeS = steps[i + 1].timeS
+            )
         }
-        
-        return strides
     }
     
     private fun validateStrides(strides: List<Stride>, signals: Signals, fps: Float): List<Stride> {
@@ -1135,107 +733,82 @@ class FeatureExtractor(
         val stepTimes = strides.map { it.step2TimeS - it.step1TimeS }
         val globalStepTime = stepTimes.median()
         
+        // Global inter-ankle range for motion_energy scoring
+        val allInterAnkle = signals.interAnkleDist.filter { !it.isNaN() }
+        val expectedRange = if (allInterAnkle.size >= 2) {
+            allInterAnkle.maxOrNull()!! - allInterAnkle.minOrNull()!!
+        } else 1f
+        
         return strides.map { stride ->
             val start = stride.startFrame
             val end = minOf(stride.endFrame, signals.isValid.size - 1)
             
-            if (start >= end) {
-                return@map stride.copy(isValid = false, invalidReason = "invalid_frame_range", qualityScore = 0f)
+            // Truly degenerate — hard exit only for these
+            if (end - start < 5) {
+                return@map stride.copy(isValid = false, invalidReason = "degenerate", qualityScore = 0f)
             }
             
-            // Check 1: Valid frame percentage
-            // Use exclusive range [start, end) to match PC's Python slicing
             val validFrames = (start until end).count { signals.isValid[it] }
             val totalFrames = end - start
             val validPct = if (totalFrames > 0) validFrames.toFloat() / totalFrames else 0f
             
-            if (validPct < validFramePct) {
-                return@map stride.copy(
-                    isValid = false,
-                    invalidReason = "low_valid_frames_${(validPct * 100).toInt()}%",
-                    validFramePct = validPct,
-                    qualityScore = 0f
-                )
+            if (validPct == 0f) {
+                return@map stride.copy(isValid = false, invalidReason = "degenerate", qualityScore = 0f)
             }
             
-            // Check 2: Step time consistency
-            val stepTime = stride.step2TimeS - stride.step1TimeS
-            val stepTimeDev = abs(stepTime - globalStepTime) / (globalStepTime + 1e-8f)
+            // --- Soft scoring: 5 components, all [0,1], no hard gates ---
             
-            if (stepTimeDev > stepTimeTolerance) {
-                return@map stride.copy(
-                    isValid = false,
-                    invalidReason = "inconsistent_step_time",
-                    validFramePct = validPct,
-                    qualityScore = 0f
-                )
-            }
+            val coverageScore = validPct
             
-            // Check 3: Knee ROM (exclusive range to match PC)
+            val stepTimeDev = abs((stride.step2TimeS - stride.step1TimeS) - globalStepTime) / (globalStepTime + 1e-8f)
+            val timingScore = maxOf(0f, 1f - stepTimeDev / 0.5f)
+            
             val kneeLeftSlice = signals.kneeAngleLeft.slice(start until end).filter { !it.isNaN() }
             val kneeRightSlice = signals.kneeAngleRight.slice(start until end).filter { !it.isNaN() }
-            
-            if (kneeLeftSlice.size < 5 || kneeRightSlice.size < 5) {
-                return@map stride.copy(
-                    isValid = false,
-                    invalidReason = "insufficient_knee_data",
-                    validFramePct = validPct,
-                    qualityScore = 0f
-                )
-            }
-            
-            val romLeft = computeRom(kneeLeftSlice)
-            val romRight = computeRom(kneeRightSlice)
-            val maxRom = maxOf(romLeft, romRight)
-            
-            if (maxRom < kneeRomMin || maxRom > kneeRomMax) {
-                return@map stride.copy(
-                    isValid = false,
-                    invalidReason = "abnormal_knee_rom_${maxRom.toInt()}deg",
-                    validFramePct = validPct,
-                    kneeRomLeft = romLeft,
-                    kneeRomRight = romRight,
-                    qualityScore = 0f
-                )
-            }
-            
-            val kneeMaxLeft = computeMaxAngle(kneeLeftSlice)
-            val kneeMaxRight = computeMaxAngle(kneeRightSlice)
-            
-            // Compute quality score
-            val romMargin = minOf(
-                (maxRom - kneeRomMin) / (kneeRomMax - kneeRomMin + 1e-8f),
-                (kneeRomMax - maxRom) / (kneeRomMax - kneeRomMin + 1e-8f)
-            ).coerceIn(0f, 1f) * 2f
-            
-            val timingScore = maxOf(0f, 1f - stepTimeDev / stepTimeTolerance)
+            val romLeft = if (kneeLeftSlice.size >= 5) computeRom(kneeLeftSlice) else 0f
+            val romRight = if (kneeRightSlice.size >= 5) computeRom(kneeRightSlice) else 0f
+            val romScore = sigmoidRomScore(maxOf(romLeft, romRight))
             
             val interAnkleSegment = signals.interAnkleDist.slice(start until end).filter { !it.isNaN() }
             val signalQuality = computeSignalQualityScore(interAnkleSegment)
             
-            val qualityScore = (
-                0.20f * validPct +
-                0.20f * timingScore +
-                0.20f * romMargin.coerceIn(0f, 1f) +
-                0.40f * signalQuality
-            )
+            val segmentRange = if (interAnkleSegment.size >= 2) {
+                interAnkleSegment.maxOrNull()!! - interAnkleSegment.minOrNull()!!
+            } else 0f
+            val motionEnergy = minOf(1f, segmentRange / (expectedRange + 1e-8f))
             
-            // Debug logging for quality score breakdown
-            Log.d(TAG, "  Stride [${start}..${end}] quality breakdown: " +
-                "validPct=${String.format("%.4f", validPct)}, " +
-                "timingScore=${String.format("%.4f", timingScore)}, " +
-                "romMargin=${String.format("%.4f", romMargin.coerceIn(0f, 1f))}, " +
-                "signalQuality=${String.format("%.4f", signalQuality)} -> total=${String.format("%.4f", qualityScore)}")
+            val qualityScore = (
+                0.20f * coverageScore +
+                0.20f * timingScore +
+                0.15f * romScore +
+                0.30f * signalQuality +
+                0.15f * motionEnergy
+            ).coerceIn(0f, 1f)
+            
+            Log.d(TAG, "  Stride [${start}..${end}] quality: " +
+                "cov=${String.format("%.3f", coverageScore)} tim=${String.format("%.3f", timingScore)} " +
+                "rom=${String.format("%.3f", romScore)} sig=${String.format("%.3f", signalQuality)} " +
+                "mot=${String.format("%.3f", motionEnergy)} -> ${String.format("%.4f", qualityScore)}")
             
             stride.copy(
                 isValid = true,
                 validFramePct = validPct,
                 kneeRomLeft = romLeft,
                 kneeRomRight = romRight,
-                kneeMaxLeft = kneeMaxLeft,
-                kneeMaxRight = kneeMaxRight,
+                kneeMaxLeft = if (kneeLeftSlice.size >= 5) computeMaxAngle(kneeLeftSlice) else 0f,
+                kneeMaxRight = if (kneeRightSlice.size >= 5) computeMaxAngle(kneeRightSlice) else 0f,
                 qualityScore = qualityScore
             )
+        }
+    }
+    
+    /** Sigmoid-shaped ROM score: 1.0 inside [10°,55°], smooth decay outside, never hard-cuts. */
+    private fun sigmoidRomScore(rom: Float): Float {
+        val lo = 10f; val hi = 55f
+        return when {
+            rom in lo..hi -> 1f
+            rom < lo -> 1f / (1f + ((lo - rom) / 10f).let { it * it })
+            else -> 1f / (1f + ((rom - hi) / 10f).let { it * it })
         }
     }
     
@@ -1318,76 +891,33 @@ class FeatureExtractor(
     // =========================================================================
     
     private fun select2InnerCycles(strides: List<Stride>): Triple<List<Stride>, String, List<Int>> {
-        val validWithIdx = strides.mapIndexedNotNull { idx, s ->
-            if (s.isValid) Pair(idx, s) else null
-        }
+        val valid = strides.withIndex().filter { it.value.isValid }
+        if (valid.size < 2) return Triple(emptyList(), "", emptyList())
         
-        if (validWithIdx.size < 2) return Triple(emptyList(), "", emptyList())
+        // Find best pair sharing exactly one boundary peak (cycleA.endFrame == cycleB.startFrame)
+        var bestScore = -1f
+        var bestA = -1
+        var bestB = -1
         
-        // Find consecutive runs of valid strides
-        val runs = mutableListOf<List<Pair<Int, Stride>>>()
-        var currentRun = mutableListOf<Pair<Int, Stride>>()
-        
-        for ((idx, stride) in strides.withIndex()) {
-            if (stride.isValid) {
-                currentRun.add(Pair(idx, stride))
-            } else {
-                if (currentRun.isNotEmpty()) {
-                    runs.add(currentRun.toList())
-                    currentRun = mutableListOf()
-                }
-            }
-        }
-        if (currentRun.isNotEmpty()) runs.add(currentRun.toList())
-        
-        // Find best consecutive pair
-        var bestPair: List<Stride>? = null
-        var bestPairScore = -1f
-        var bestPairIndices = listOf<Int>()
-        var bestPairReason = ""
-        
-        // Log all consecutive pair scores for debugging
-        Log.d(TAG, "=== CONSECUTIVE PAIR SCORES ===")
-        
-        for (run in runs) {
-            if (run.size >= 2) {
-                for (j in 0 until run.size - 1) {
-                    val (idx1, s1) = run[j]
-                    val (idx2, s2) = run[j + 1]
-                    val pairScore = s1.qualityScore + s2.qualityScore
-                    
-                    Log.d(TAG, "  Pair [$idx1, $idx2]: score=${String.format("%.4f", pairScore)} " +
-                        "(q1=${String.format("%.4f", s1.qualityScore)}, q2=${String.format("%.4f", s2.qualityScore)}) " +
-                        "frames [${s1.startFrame}..${s1.endFrame}] + [${s2.startFrame}..${s2.endFrame}]")
-                    
-                    if (pairScore > bestPairScore) {
-                        bestPairScore = pairScore
-                        bestPair = listOf(s1, s2)
-                        bestPairIndices = listOf(idx1, idx2)
-                        bestPairReason = "best_consecutive_pair"
-                    }
+        Log.d(TAG, "=== PAIR SELECTION (boundary-sharing) ===")
+        for (i in valid.indices) {
+            for (j in i + 1 until valid.size) {
+                val a = valid[i]; val b = valid[j]
+                if (a.value.endFrame != b.value.startFrame) continue  // must share boundary peak
+                val score = a.value.qualityScore + b.value.qualityScore
+                Log.d(TAG, "  Pair [${a.index}, ${b.index}]: score=${String.format("%.4f", score)} " +
+                    "frames [${a.value.startFrame}..${a.value.endFrame}] + [${b.value.startFrame}..${b.value.endFrame}]")
+                if (score > bestScore) {
+                    bestScore = score; bestA = i; bestB = j
                 }
             }
         }
         
-        if (bestPair != null) {
-            Log.d(TAG, "  Best: [$bestPairIndices] score=$bestPairScore")
-            return Triple(bestPair, bestPairReason, bestPairIndices)
-        }
+        if (bestA < 0) return Triple(emptyList(), "", emptyList())
         
-        // Fallback: best non-consecutive pair by quality
-        if (validWithIdx.size >= 2) {
-            val sorted = validWithIdx.sortedByDescending { it.second.qualityScore }
-            val (idx1, s1) = sorted[0]
-            val (idx2, s2) = sorted[1]
-            
-            val orderedPair = if (idx1 < idx2) listOf(s1, s2) else listOf(s2, s1)
-            val orderedIndices = if (idx1 < idx2) listOf(idx1, idx2) else listOf(idx2, idx1)
-            
-            return Triple(orderedPair, "fallback_nonconsecutive_pair", orderedIndices)
-        }
-        
-        return Triple(emptyList(), "", emptyList())
+        val a = valid[bestA]; val b = valid[bestB]
+        Log.d(TAG, "  Best: [${a.index}, ${b.index}] score=${String.format("%.4f", bestScore)}")
+        return Triple(listOf(a.value, b.value), "best_pair", listOf(a.index, b.index))
     }
     
     // =========================================================================
@@ -1607,7 +1137,6 @@ class FeatureExtractor(
         reason: String,
         numSteps: Int = 0,
         numValidStrides: Int = 0,
-        stepMode: String = "inter_ankle",
         selectionReason: String = ""
     ): GaitDiagnostics {
         return GaitDiagnostics(

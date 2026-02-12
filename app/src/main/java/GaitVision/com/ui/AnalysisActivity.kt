@@ -56,6 +56,7 @@ class AnalysisActivity : BaseActivity() {
     private var isProcessing = false
     private var shouldSave = true
     private var lastCursorIndex = -1
+    private var cursorLimitLine: LimitLine? = null
 
     // Cached view references (resolved once, used every frame)
     private lateinit var videoView: VideoView
@@ -370,26 +371,10 @@ class AnalysisActivity : BaseActivity() {
 
     private fun setupStrideChart() {
         val signals = extractedSignals ?: return
-        val mode = stepSignalMode ?: return
 
         val dataSets = mutableListOf<LineDataSet>()
-
-        when (mode) {
-            "inter_ankle" -> {
-                tvChartLabel.text = "Stride Signal: Inter-Ankle Distance"
-                dataSets.add(makeDataSet(signals.interAnkleDist, "Inter-Ankle", Color.CYAN))
-            }
-            "max_ankle_vy" -> {
-                tvChartLabel.text = "Stride Signal: Ankle Velocity"
-                dataSets.add(makeDataSet(signals.ankleLeftVy, "Ankle L Vy", Color.CYAN))
-                dataSets.add(makeDataSet(signals.ankleRightVy, "Ankle R Vy", Color.MAGENTA))
-            }
-            "min_knee_angle" -> {
-                tvChartLabel.text = "Stride Signal: Knee Angle"
-                dataSets.add(makeDataSet(signals.kneeAngleLeft, "Knee L", Color.parseColor("#4CAF50")))
-                dataSets.add(makeDataSet(signals.kneeAngleRight, "Knee R", Color.parseColor("#FF9800")))
-            }
-        }
+        tvChartLabel.text = "Stride Signal: Inter-Ankle Distance"
+        dataSets.add(makeDataSet(signals.interAnkleDist, "Inter-Ankle", Color.CYAN))
 
         strideChart.data = LineData(dataSets.toList())
         strideChart.description.isEnabled = false
@@ -397,7 +382,65 @@ class AnalysisActivity : BaseActivity() {
         strideChart.xAxis.textColor = Color.WHITE
         strideChart.axisLeft.textColor = Color.WHITE
         strideChart.axisRight.isEnabled = false
+        
+        // Draw stride boundaries on the chart
+        addStrideBoundaries()
+        
         strideChart.invalidate()
+    }
+    
+    /**
+     * Add stride boundary lines to the chart.
+     * Gold = selected cycles, Green = valid (not selected), Gray = invalid.
+     */
+    private fun addStrideBoundaries() {
+        val strides = extractedStrides ?: return
+        val selectedIndices = selectedStrideIndices ?: emptyList()
+        
+        for ((idx, stride) in strides.withIndex()) {
+            val isSelected = selectedIndices.contains(idx)
+            val color: Int
+            val width: Float
+            val style: LimitLine.LimitLabelPosition
+            
+            when {
+                isSelected -> {
+                    color = Color.parseColor("#FFD700")  // Gold
+                    width = 1.5f
+                    style = LimitLine.LimitLabelPosition.RIGHT_TOP
+                }
+                stride.isValid -> {
+                    color = Color.parseColor("#4CAF50")  // Green
+                    width = 1f
+                    style = LimitLine.LimitLabelPosition.RIGHT_TOP
+                }
+                else -> {
+                    color = Color.parseColor("#888888")  // Gray
+                    width = 0.5f
+                    style = LimitLine.LimitLabelPosition.RIGHT_TOP
+                }
+            }
+            
+            // Start boundary line
+            val startLine = LimitLine(stride.startFrame.toFloat()).apply {
+                lineColor = color
+                lineWidth = width
+                enableDashedLine(if (isSelected) 0f else 6f, if (isSelected) 0f else 4f, 0f)
+                labelPosition = style
+                textColor = color
+                textSize = 0f  // No label to keep chart clean
+            }
+            strideChart.xAxis.addLimitLine(startLine)
+            
+            // End boundary line
+            val endLine = LimitLine(stride.endFrame.toFloat()).apply {
+                lineColor = color
+                lineWidth = width
+                enableDashedLine(if (isSelected) 0f else 6f, if (isSelected) 0f else 4f, 0f)
+                textSize = 0f
+            }
+            strideChart.xAxis.addLimitLine(endLine)
+        }
     }
 
     private fun makeDataSet(data: FloatArray, label: String, color: Int): LineDataSet {
@@ -418,11 +461,15 @@ class AnalysisActivity : BaseActivity() {
         if (index == lastCursorIndex) return  // Skip if frame hasn't changed
         lastCursorIndex = index
         if (strideChart.data == null) return
-        strideChart.xAxis.removeAllLimitLines()
+        
+        // Remove only the previous cursor line (preserve stride boundaries)
+        cursorLimitLine?.let { strideChart.xAxis.removeLimitLine(it) }
+        
         val cursor = LimitLine(index.toFloat()).apply {
             lineColor = Color.WHITE
             lineWidth = 1f
         }
+        cursorLimitLine = cursor
         strideChart.xAxis.addLimitLine(cursor)
         strideChart.invalidate()
     }

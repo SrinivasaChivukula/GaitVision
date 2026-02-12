@@ -21,10 +21,6 @@ object GaitConfig {
     const val MAX_STEP_TIME_S = 1.70f
     const val STEP_DISTANCE_FACTOR = 0.41f
     const val STEP_PROMINENCE_FACTOR = 0.33f
-    const val VALID_FRAME_PCT = 0.66f
-    const val STEP_TIME_TOLERANCE = 0.22f
-    const val KNEE_ROM_MIN = 3.6f
-    const val KNEE_ROM_MAX = 62.1f
     
     // Robust extrema
     const val USE_ROBUST_EXTREMA = true

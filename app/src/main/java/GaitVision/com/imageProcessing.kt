@@ -280,6 +280,109 @@ fun releaseMediaPipeBackend() {
 }
 
 
+/** Map a MediaPipe landmark index to its left/right mirror. */
+fun getLRSwapIndex(idx: Int): Int {
+    return when (idx) {
+        1 -> 4; 4 -> 1;  2 -> 5; 5 -> 2;  3 -> 6; 6 -> 3
+        7 -> 8; 8 -> 7;  9 -> 10; 10 -> 9
+        11 -> 12; 12 -> 11;  13 -> 14; 14 -> 13
+        15 -> 16; 16 -> 15;  17 -> 18; 18 -> 17
+        19 -> 20; 20 -> 19;  21 -> 22; 22 -> 21
+        23 -> 24; 24 -> 23;  25 -> 26; 26 -> 25
+        27 -> 28; 28 -> 27;  29 -> 30; 30 -> 29
+        31 -> 32; 32 -> 31
+        else -> idx
+    }
+}
+
+/**
+ * Fixes per-frame L/R landmark swaps caused by clothing/occlusion/angle.
+ * Compares motion continuity cost (ankle+knee+hip) to detect when MediaPipe
+ * assigned landmarks to the wrong side. Must run BEFORE normalizeDirection().
+ *
+ * Only swaps when cost_swap < 0.8 * cost_keep (symmetric hysteresis).
+ * Low-confidence frames are skipped and carry forward the previous assignment.
+ */
+fun stabilizeLandmarkIdentity(poseSeq: PoseSequence): PoseSequence {
+    val TAG = "IdentityStab"
+    val MIN_CONF = GaitVision.com.gait.GaitConfig.MIN_CONFIDENCE
+    val HYSTERESIS = 0.8f
+
+    val trackedPairs = listOf(
+        Pair(MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.RIGHT_ANKLE),   // 27, 28
+        Pair(MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.RIGHT_KNEE),     // 25, 26
+        Pair(MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.RIGHT_HIP)        // 23, 24
+    )
+
+    val frames = poseSeq.frames
+    if (frames.size < 2) return poseSeq
+
+    val stabilizedFrames = frames.toMutableList()
+    var totalSwaps = 0
+    var currentRunLength = 0
+    var maxRunLength = 0
+    var lastEvalIdx = 0  // index of last frame where we made a swap decision
+
+    for (t in 1 until frames.size) {
+        val prev = stabilizedFrames[lastEvalIdx]
+        val curr = frames[t]
+
+        val allConfident = trackedPairs.all { (l, r) ->
+            curr.confidences[l] >= MIN_CONF && curr.confidences[r] >= MIN_CONF &&
+            prev.confidences[l] >= MIN_CONF && prev.confidences[r] >= MIN_CONF
+        }
+
+        if (!allConfident) {
+            stabilizedFrames[t] = curr  // low confidence, carry forward
+            continue
+        }
+
+        var costKeep = 0f
+        var costSwap = 0f
+        for ((l, r) in trackedPairs) {
+            val currL = curr.keypoints[l]
+            val currR = curr.keypoints[r]
+            val prevL = prev.keypoints[l]
+            val prevR = prev.keypoints[r]
+
+            costKeep += dist2d(currL, prevL) + dist2d(currR, prevR)
+            costSwap += dist2d(currL, prevR) + dist2d(currR, prevL)
+        }
+
+        if (costSwap < HYSTERESIS * costKeep) {
+            val swappedKeypoints = Array(33) { floatArrayOf(0f, 0f) }
+            val swappedConfidences = FloatArray(33)
+            for (i in 0 until 33) {
+                val swapIdx = getLRSwapIndex(i)
+                swappedKeypoints[swapIdx] = curr.keypoints[i].clone()
+                swappedConfidences[swapIdx] = curr.confidences[i]
+            }
+            stabilizedFrames[t] = curr.copy(keypoints = swappedKeypoints, confidences = swappedConfidences)
+            totalSwaps++
+            currentRunLength++
+            maxRunLength = maxOf(maxRunLength, currentRunLength)
+        } else {
+            stabilizedFrames[t] = curr
+            currentRunLength = 0
+        }
+
+        lastEvalIdx = t
+    }
+
+    val swapRate = if (frames.size > 1) totalSwaps.toFloat() / (frames.size - 1) else 0f
+    Log.d(TAG, "Identity stabilization: ${frames.size} frames, $totalSwaps swaps " +
+        "(${String.format("%.1f", swapRate * 100)}%), longest run: $maxRunLength")
+
+    return poseSeq.copy(frames = stabilizedFrames)
+}
+
+/** Euclidean distance between two 2D keypoints. */
+private fun dist2d(a: FloatArray, b: FloatArray): Float {
+    val dx = a[0] - b[0]
+    val dy = a[1] - b[1]
+    return kotlin.math.sqrt(dx * dx + dy * dy)
+}
+
 /**
  * Hide progress UI elements after processing.
  */
@@ -900,7 +1003,8 @@ private suspend fun extractGaitFeatures(
         // Initialize feature extractor with OPTIMAL_CONFIG
         val featureExtractor = FeatureExtractor()
         
-        // Normalize walking direction
+        // Stabilize L/R identity, then normalize walking direction
+        poseSequence = stabilizeLandmarkIdentity(poseSequence)
         poseSequence = featureExtractor.normalizeDirection(poseSequence)
         Log.d("ImageProcessing", "Walking direction: ${poseSequence.walkingDirection}, flipped: ${poseSequence.wasFlipped}")
         
@@ -923,7 +1027,8 @@ private suspend fun extractGaitFeatures(
             val roiResult = reprocessWithRoiTracking(context, frameWidth, frameHeight, totalFrames, fps, activity)
             if (roiResult != null) {
                 val (roiPoseSequence, roiFrames) = roiResult
-                val normalizedRoiSeq = featureExtractor.normalizeDirection(roiPoseSequence)
+                val stabilizedRoiSeq = stabilizeLandmarkIdentity(roiPoseSequence)
+                val normalizedRoiSeq = featureExtractor.normalizeDirection(stabilizedRoiSeq)
                 val (roiFeatures, roiDiagnostics) = featureExtractor.extract(normalizedRoiSeq)
                 
                 // Use ROI result if it's better

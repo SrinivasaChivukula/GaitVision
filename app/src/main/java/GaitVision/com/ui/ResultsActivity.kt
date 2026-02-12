@@ -38,7 +38,7 @@ class ResultsActivity : BaseActivity() {
     private var calculatedScore: Double = 0.0
     private var resultId: Long = -1L
 
-    /** SAF file picker for CSV export -- user chooses save location */
+    /** SAF file picker for CSV export, user chooses save location maybe more secure??? */
     private val csvExportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri -> uri?.let { writeCsvToUri(it) } }
