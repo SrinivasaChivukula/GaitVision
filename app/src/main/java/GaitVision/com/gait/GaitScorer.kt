@@ -137,8 +137,7 @@ class GaitScorer(private val context: Context) {
                 Log.e(TAG, "AE: Could not load TFLite model file")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load AE model: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "Failed to load AE model", e)
         }
     }
     
@@ -212,8 +211,7 @@ class GaitScorer(private val context: Context) {
             pcaAvailable = pcaClinicalMapping != null
             Log.d(TAG, "Loaded PCA model: ${config.getString("model_name")}, available=$pcaAvailable")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load PCA model: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "Failed to load PCA model", e)
         }
     }
     
@@ -347,23 +345,9 @@ class GaitScorer(private val context: Context) {
     private fun computeAEScore(features: FloatArray): Float {
         Log.d(TAG, "--- AE SCORING ---")
         
-        val model = aeInterpreter
-        if (model == null) {
-            Log.e(TAG, "AE FAIL: interpreter is null")
-            return Float.NaN
-        }
-        
-        val mean = aeScalerMean
-        if (mean == null) {
-            Log.e(TAG, "AE FAIL: scaler mean is null")
-            return Float.NaN
-        }
-        
-        val scale = aeScalerScale
-        if (scale == null) {
-            Log.e(TAG, "AE FAIL: scaler scale is null")
-            return Float.NaN
-        }
+        val model = aeInterpreter ?: return Float.NaN.also { Log.e(TAG, "AE FAIL: interpreter is null") }
+        val mean = aeScalerMean ?: return Float.NaN.also { Log.e(TAG, "AE FAIL: scaler mean is null") }
+        val scale = aeScalerScale ?: return Float.NaN.also { Log.e(TAG, "AE FAIL: scaler scale is null") }
         
         Log.d(TAG, "AE: interpreter OK, mean size=${mean.size}, scale size=${scale.size}")
         
@@ -415,8 +399,7 @@ class GaitScorer(private val context: Context) {
             return healthScore
             
         } catch (e: Exception) {
-            Log.e(TAG, "AE EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "AE EXCEPTION", e)
             return Float.NaN
         }
     }
@@ -465,23 +448,9 @@ class GaitScorer(private val context: Context) {
     private fun computePCAScore(features: FloatArray): Float {
         Log.d(TAG, "--- PCA SCORING ---")
         
-        val components = pcaComponents
-        if (components == null) {
-            Log.e(TAG, "PCA FAIL: components is null")
-            return Float.NaN
-        }
-        
-        val mean = pcaScalerMean
-        if (mean == null) {
-            Log.e(TAG, "PCA FAIL: scaler mean is null")
-            return Float.NaN
-        }
-        
-        val scale = pcaScalerScale
-        if (scale == null) {
-            Log.e(TAG, "PCA FAIL: scaler scale is null")
-            return Float.NaN
-        }
+        val components = pcaComponents ?: return Float.NaN.also { Log.e(TAG, "PCA FAIL: components is null") }
+        val mean = pcaScalerMean ?: return Float.NaN.also { Log.e(TAG, "PCA FAIL: scaler mean is null") }
+        val scale = pcaScalerScale ?: return Float.NaN.also { Log.e(TAG, "PCA FAIL: scaler scale is null") }
         
         Log.d(TAG, "PCA: components=${components.size}x${components[0].size}, mean=${mean.size}, scale=${scale.size}")
         
@@ -528,8 +497,7 @@ class GaitScorer(private val context: Context) {
             return healthScore
             
         } catch (e: Exception) {
-            Log.e(TAG, "PCA EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "PCA EXCEPTION", e)
             return Float.NaN
         }
     }
@@ -616,14 +584,6 @@ data class ScoringResult(
      */
     fun getScoreForDatabase(): Double {
         return if (aeScore.isNaN()) 0.0 else aeScore.toDouble()
-    }
-    
-    /**
-     * Get average of available scores (for display only).
-     */
-    fun getAverageScore(): Float {
-        val scores = listOf(aeScore, ridgeScore, pcaScore).filter { !it.isNaN() }
-        return if (scores.isNotEmpty()) scores.average().toFloat() else 50f
     }
     
     companion object {

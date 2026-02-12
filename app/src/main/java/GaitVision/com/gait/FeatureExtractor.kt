@@ -7,6 +7,9 @@ import GaitVision.com.mediapipe.MediaPipePoseBackend
 import GaitVision.com.mediapipe.PoseSequence
 import kotlin.math.*
 
+/** Safe average that returns 0f for empty lists. */
+private fun List<Float>.averageOrZero(): Float = if (isNotEmpty()) average().toFloat() else 0f
+
 /**
  * Feature Extractor for Gait Analysis - Kotlin port of PC pipeline (pc_tasks/feature_extractor.py).
  * 
@@ -61,9 +64,7 @@ class FeatureExtractor(
                 "detection_rate_${(poseSeq.detectionRate * 100).toInt()}%"))
         }
         
-        // =====================================================================
-        // FULL PIPELINE DEBUG - Compare with PC (controlled by enableVerboseLogging)
-        // =====================================================================
+        // Full pipeline debug (controlled by enableVerboseLogging)
         
         // Step 1: Compute signals
         var signals = computeSignals(poseSeq)
@@ -237,9 +238,7 @@ class FeatureExtractor(
         )
     }
     
-    // =========================================================================
-    // Signal Computation
-    // =========================================================================
+    // --- Signal Computation ---
     
     private fun computeSignals(poseSeq: PoseSequence): Signals {
         val n = poseSeq.numFramesTotal
@@ -393,21 +392,13 @@ class FeatureExtractor(
         return Math.toDegrees(atan2(dx, -dy).toDouble()).toFloat()
     }
     
-    // =========================================================================
-    // Signal Processing
-    // =========================================================================
+    // --- Signal Processing ---
     
     private fun interpolateSignals(signals: Signals): Signals {
-        interpolateArray(signals.interAnkleDist, maxInterpGap)
-        interpolateArray(signals.kneeAngleLeft, maxInterpGap)
-        interpolateArray(signals.kneeAngleRight, maxInterpGap)
-        interpolateArray(signals.trunkAngle, maxInterpGap)
-        interpolateArray(signals.ankleLeftX, maxInterpGap)
-        interpolateArray(signals.ankleRightX, maxInterpGap)
-        interpolateArray(signals.ankleLeftY, maxInterpGap)
-        interpolateArray(signals.ankleRightY, maxInterpGap)
-        interpolateArray(signals.hipLeftY, maxInterpGap)
-        interpolateArray(signals.hipRightY, maxInterpGap)
+        val arrays = listOf(signals.interAnkleDist, signals.kneeAngleLeft, signals.kneeAngleRight,
+            signals.trunkAngle, signals.ankleLeftX, signals.ankleRightX,
+            signals.ankleLeftY, signals.ankleRightY, signals.hipLeftY, signals.hipRightY)
+        arrays.forEach { interpolateArray(it, maxInterpGap) }
         return signals
     }
     
@@ -439,14 +430,10 @@ class FeatureExtractor(
     }
     
     private fun smoothSignals(signals: Signals): Signals {
-        emaSmoothGapAware(signals.interAnkleDist, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.kneeAngleLeft, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.kneeAngleRight, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.trunkAngle, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.ankleLeftY, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.ankleRightY, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.hipLeftY, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.hipRightY, emaAlpha, maxInterpGap)
+        val arrays = listOf(signals.interAnkleDist, signals.kneeAngleLeft, signals.kneeAngleRight,
+            signals.trunkAngle, signals.ankleLeftY, signals.ankleRightY,
+            signals.hipLeftY, signals.hipRightY)
+        arrays.forEach { emaSmoothGapAware(it, emaAlpha, maxInterpGap) }
         return signals
     }
     
@@ -522,34 +509,6 @@ class FeatureExtractor(
         
         return signals
     }
-    
-    // =========================================================================
-    // Multi-Mode Step Detection
-    // =========================================================================
-    
-    private fun determineNearLeg(poseSeq: PoseSequence): String {
-        var leftConfSum = 0f
-        var rightConfSum = 0f
-        
-        for (frame in poseSeq.frames) {
-            val leftConf = (frame.confidences[MediaPipePoseBackend.LEFT_HIP] +
-                    frame.confidences[MediaPipePoseBackend.LEFT_KNEE] +
-                    frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]) / 3f
-            val rightConf = (frame.confidences[MediaPipePoseBackend.RIGHT_HIP] +
-                    frame.confidences[MediaPipePoseBackend.RIGHT_KNEE] +
-                    frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]) / 3f
-            leftConfSum += leftConf
-            rightConfSum += rightConf
-        }
-        
-        return if (leftConfSum >= rightConfSum) "left" else "right"
-    }
-    
-    
-    
-    
-    
-    
     
     private fun detectStepsFromSignal(stepSignal: FloatArray, fps: Float): List<StepEvent> {
         val validPct = stepSignal.count { !it.isNaN() }.toFloat() / stepSignal.size
@@ -704,9 +663,7 @@ class FeatureExtractor(
         return filteredPeaks
     }
     
-    // =========================================================================
-    // Stride Segmentation and Validation
-    // =========================================================================
+    // --- Stride Segmentation and Validation ---
     
     private fun segmentStrides(steps: List<StepEvent>, signals: Signals, fps: Float): List<Stride> {
         if (steps.size < 3) return emptyList()
@@ -886,9 +843,7 @@ class FeatureExtractor(
         }
     }
     
-    // =========================================================================
-    // Quality-Based Stride Selection
-    // =========================================================================
+    // --- Quality-Based Stride Selection ---
     
     private fun select2InnerCycles(strides: List<Stride>): Triple<List<Stride>, String, List<Int>> {
         val valid = strides.withIndex().filter { it.value.isValid }
@@ -920,9 +875,7 @@ class FeatureExtractor(
         return Triple(listOf(a.value, b.value), "best_pair", listOf(a.index, b.index))
     }
     
-    // =========================================================================
-    // Feature Computation
-    // =========================================================================
+    // --- Feature Computation ---
     
     private fun computeFeatures(
         signals: Signals,
@@ -996,8 +949,8 @@ class FeatureExtractor(
             if (!aStart.isNaN() && !aEnd.isNaN()) ankleALengths.add(abs(aEnd - aStart))
             if (!bStart.isNaN() && !bEnd.isNaN()) ankleBLengths.add(abs(bEnd - bStart))
         }
-        val meanAnkleA = if (ankleALengths.isNotEmpty()) ankleALengths.average().toFloat() else 0f
-        val meanAnkleB = if (ankleBLengths.isNotEmpty()) ankleBLengths.average().toFloat() else 0f
+        val meanAnkleA = ankleALengths.averageOrZero()
+        val meanAnkleB = ankleBLengths.averageOrZero()
         val stepLengthAsymmetry = asymmetryIndex(meanAnkleA, meanAnkleB)
         
         // Knee ROM and max (from stride validation)
@@ -1006,27 +959,14 @@ class FeatureExtractor(
         val kneeLeftMax = selectedStrides.map { it.kneeMaxLeft }.average().toFloat()
         val kneeRightMax = selectedStrides.map { it.kneeMaxRight }.average().toFloat()
         
-        // Stride amplitude (max inter-ankle in stride / body width, exclusive range to match PC)
-        val maxInterAnkleValues = mutableListOf<Float>()
-        for (s in selectedStrides) {
-            val segment = signals.interAnkleDist.slice(s.startFrame until minOf(s.endFrame, signals.interAnkleDist.size))
-                .filter { !it.isNaN() }
-            if (segment.isNotEmpty()) {
-                maxInterAnkleValues.add(segment.maxOrNull() ?: 0f)
-            }
+        // Stride amplitude (max inter-ankle in stride / body width)
+        val maxInterAnkleValues = selectedStrides.mapNotNull { s ->
+            sliceStrideSignal(signals.interAnkleDist, s).maxOrNull()
         }
-        val strideAmpNorm = if (maxInterAnkleValues.isNotEmpty()) {
-            maxInterAnkleValues.average().toFloat() / (bodyWidth + 1e-8f)
-        } else 0f
+        val strideAmpNorm = maxInterAnkleValues.averageOrZero() / (bodyWidth + 1e-8f)
         
-        // Inter-ankle CV (within stride windows, exclusive range to match PC)
-        val interAnkleValues = mutableListOf<Float>()
-        for (s in selectedStrides) {
-            val segment = signals.interAnkleDist.slice(s.startFrame until minOf(s.endFrame, signals.interAnkleDist.size))
-                .filter { !it.isNaN() }
-            interAnkleValues.addAll(segment)
-        }
-        // Use epsilon like PC for numerical stability
+        // Inter-ankle CV (within stride windows)
+        val interAnkleValues = selectedStrides.flatMap { sliceStrideSignal(signals.interAnkleDist, it) }
         val interAnkleCv = if (interAnkleValues.isNotEmpty()) {
             interAnkleValues.std() / (interAnkleValues.average().toFloat() + 1e-8f)
         } else 0f
@@ -1051,18 +991,14 @@ class FeatureExtractor(
             if (!ldjH.isNaN() && ldjH > 0) ldjHipValues.add(ldjH)
         }
         
-        val ldjKneeLeft = if (ldjKneeLeftValues.isNotEmpty()) ldjKneeLeftValues.average().toFloat() else 0f
-        val ldjKneeRight = if (ldjKneeRightValues.isNotEmpty()) ldjKneeRightValues.average().toFloat() else 0f
-        val ldjHip = if (ldjHipValues.isNotEmpty()) ldjHipValues.average().toFloat() else 0f
+        val ldjKneeLeft = ldjKneeLeftValues.averageOrZero()
+        val ldjKneeRight = ldjKneeRightValues.averageOrZero()
+        val ldjHip = ldjHipValues.averageOrZero()
         
-        // Trunk lean std (within stride windows, exclusive range to match PC)
-        val trunkValues = mutableListOf<Float>()
-        for (s in selectedStrides) {
-            val segment = signals.trunkAngle.slice(s.startFrame until minOf(s.endFrame, signals.trunkAngle.size))
-                .filter { !it.isNaN() }
-            trunkValues.addAll(segment)
-        }
-        val trunkValuesAbs = trunkValues.map { abs(it) }
+        // Trunk lean std (within stride windows)
+        val trunkValuesAbs = selectedStrides
+            .flatMap { sliceStrideSignal(signals.trunkAngle, it) }
+            .map { abs(it) }
         val trunkLeanStdDeg = if (trunkValuesAbs.isNotEmpty()) trunkValuesAbs.std() else 0f
         
         return Triple(
@@ -1111,6 +1047,12 @@ class FeatureExtractor(
         return if (widths.isNotEmpty()) widths.average().toFloat() else 0.1f
     }
     
+    /** Slice a signal array within a stride's frame range, filtering NaN values. */
+    private fun sliceStrideSignal(signal: FloatArray, stride: Stride): List<Float> {
+        return signal.slice(stride.startFrame until minOf(stride.endFrame, signal.size))
+            .filter { !it.isNaN() }
+    }
+    
     private fun computeLDJ(signal: List<Float>, fps: Float): Float {
         val valid = signal.filter { !it.isNaN() }
         if (valid.size < 3) return 0f  // Match PC: return 0, not NaN
@@ -1127,9 +1069,7 @@ class FeatureExtractor(
         return ldj
     }
     
-    // =========================================================================
-    // Diagnostics
-    // =========================================================================
+    // --- Diagnostics ---
     
     private fun createDiagnostics(
         poseSeq: PoseSequence,

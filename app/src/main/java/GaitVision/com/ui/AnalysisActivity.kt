@@ -31,7 +31,6 @@ import GaitVision.com.data.repository.PatientRepository
 import GaitVision.com.ProcVidEmpty
 import GaitVision.com.galleryUri
 import GaitVision.com.editedUri
-import GaitVision.com.frameList
 import GaitVision.com.extractedSignals
 import GaitVision.com.participantId
 import GaitVision.com.participantHeight

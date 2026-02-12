@@ -46,12 +46,7 @@ class SignalsDashboardActivity : BaseActivity() {
     private lateinit var tvLegend: TextView
     private lateinit var btnSelectSignal: Button
 
-    private lateinit var chartInterAnkle: LineChart
-    private lateinit var chartKneeAngles: LineChart
-    private lateinit var chartAnkleY: LineChart
-    private lateinit var chartAnkleVy: LineChart
-    private lateinit var chartHipY: LineChart
-    private lateinit var chartTrunk: LineChart
+    private val chartMap = linkedMapOf<String, LineChart>()
 
     private var currentSignal = "INTER_ANKLE"
     private var cachedSignals: Signals? = null
@@ -75,17 +70,14 @@ class SignalsDashboardActivity : BaseActivity() {
         tvLegend = findViewById(R.id.tvLegend)
         btnSelectSignal = findViewById(R.id.btnSelectSignal)
 
-        chartInterAnkle = findViewById(R.id.chartInterAnkle)
-        chartKneeAngles = findViewById(R.id.chartKneeAngles)
-        chartAnkleY = findViewById(R.id.chartAnkleY)
-        chartAnkleVy = findViewById(R.id.chartAnkleVy)
-        chartHipY = findViewById(R.id.chartHipY)
-        chartTrunk = findViewById(R.id.chartTrunk)
+        chartMap["INTER_ANKLE"] = findViewById(R.id.chartInterAnkle)
+        chartMap["KNEE_ANGLES"] = findViewById(R.id.chartKneeAngles)
+        chartMap["ANKLE_Y"] = findViewById(R.id.chartAnkleY)
+        chartMap["ANKLE_VY"] = findViewById(R.id.chartAnkleVy)
+        chartMap["HIP_Y"] = findViewById(R.id.chartHipY)
+        chartMap["TRUNK"] = findViewById(R.id.chartTrunk)
 
-        // Configure all charts with dark theme
-        listOf(chartInterAnkle, chartKneeAngles, chartAnkleY, chartAnkleVy, chartHipY, chartTrunk).forEach { chart ->
-            configureChart(chart)
-        }
+        chartMap.values.forEach { configureChart(it) }
     }
 
     private fun configureChart(chart: LineChart) {
@@ -143,35 +135,16 @@ class SignalsDashboardActivity : BaseActivity() {
     private fun showChart(signalType: String, title: String) {
         currentSignal = signalType
 
-        chartInterAnkle.visibility = View.INVISIBLE
-        chartKneeAngles.visibility = View.INVISIBLE
-        chartAnkleY.visibility = View.INVISIBLE
-        chartAnkleVy.visibility = View.INVISIBLE
-        chartHipY.visibility = View.INVISIBLE
-        chartTrunk.visibility = View.INVISIBLE
+        chartMap.values.forEach { it.visibility = View.INVISIBLE }
 
-        // Lazy-populate: only build chart data on first show
+        // Lazy-populate on first show
         val signals = cachedSignals
         if (signals != null && signalType !in populatedCharts) {
-            when (signalType) {
-                "INTER_ANKLE" -> populateInterAnkleChart(signals, cachedStrides)
-                "KNEE_ANGLES" -> populateKneeAnglesChart(signals, cachedStrides)
-                "ANKLE_Y" -> populateAnkleYChart(signals, cachedStrides)
-                "ANKLE_VY" -> populateAnkleVyChart(signals, cachedStrides)
-                "HIP_Y" -> populateHipYChart(signals, cachedStrides)
-                "TRUNK" -> populateTrunkChart(signals, cachedStrides)
-            }
+            populateChart(signalType, signals, cachedStrides)
             populatedCharts.add(signalType)
         }
 
-        when (signalType) {
-            "INTER_ANKLE" -> chartInterAnkle.visibility = View.VISIBLE
-            "KNEE_ANGLES" -> chartKneeAngles.visibility = View.VISIBLE
-            "ANKLE_Y" -> chartAnkleY.visibility = View.VISIBLE
-            "ANKLE_VY" -> chartAnkleVy.visibility = View.VISIBLE
-            "HIP_Y" -> chartHipY.visibility = View.VISIBLE
-            "TRUNK" -> chartTrunk.visibility = View.VISIBLE
-        }
+        chartMap[signalType]?.visibility = View.VISIBLE
     }
 
     private fun updateLegend(signalId: Int) {
@@ -335,196 +308,55 @@ class SignalsDashboardActivity : BaseActivity() {
         }
     }
 
-    private fun populateInterAnkleChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val entries = mutableListOf<Entry>()
+    /** Signal series config: (signal array, label, color hex, invertY?) */
+    private data class SeriesConfig(val signal: FloatArray, val label: String, val color: String, val invertY: Boolean = false)
 
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            val v = signals.interAnkleDist[i]
-            if (!t.isNaN() && !v.isNaN()) {
-                entries.add(Entry(t, v))
+    private fun populateChart(signalType: String, signals: Signals, strides: List<Stride>?) {
+        val chart = chartMap[signalType] ?: return
+        val addZeroLine = signalType == "ANKLE_VY" || signalType == "TRUNK"
+
+        val seriesList: List<SeriesConfig> = when (signalType) {
+            "INTER_ANKLE" -> listOf(SeriesConfig(signals.interAnkleDist, "Inter-Ankle Distance", "#2196F3"))
+            "KNEE_ANGLES" -> listOf(
+                SeriesConfig(signals.kneeAngleLeft, "Left Knee", "#3498DB"),
+                SeriesConfig(signals.kneeAngleRight, "Right Knee", "#E74C3C"))
+            "ANKLE_Y" -> listOf(
+                SeriesConfig(signals.ankleLeftY, "Left Ankle Y", "#3498DB", invertY = true),
+                SeriesConfig(signals.ankleRightY, "Right Ankle Y", "#E74C3C", invertY = true))
+            "ANKLE_VY" -> listOf(
+                SeriesConfig(signals.ankleLeftVy, "Left Ankle Vy", "#3498DB"),
+                SeriesConfig(signals.ankleRightVy, "Right Ankle Vy", "#E74C3C"))
+            "HIP_Y" -> listOf(
+                SeriesConfig(signals.hipLeftY, "Left Hip Y", "#3498DB", invertY = true),
+                SeriesConfig(signals.hipRightY, "Right Hip Y", "#E74C3C", invertY = true))
+            "TRUNK" -> listOf(SeriesConfig(signals.trunkAngle, "Trunk Angle", "#9B59B6"))
+            else -> return
+        }
+
+        val dataSets = seriesList.map { cfg ->
+            val entries = mutableListOf<Entry>()
+            for (i in signals.timestamps.indices) {
+                val t = signals.timestamps[i]
+                val v = cfg.signal[i]
+                if (!t.isNaN() && !v.isNaN()) {
+                    entries.add(Entry(t, if (cfg.invertY) -v else v))
+                }
+            }
+            LineDataSet(entries, cfg.label).apply {
+                color = Color.parseColor(cfg.color)
+                setDrawCircles(false)
+                setDrawValues(false)
+                lineWidth = 1.5f
             }
         }
 
-        val dataSet = LineDataSet(entries, "Inter-Ankle Distance")
-        dataSet.color = Color.parseColor("#2196F3")
-        dataSet.setDrawCircles(false)
-        dataSet.setDrawValues(false)
-        dataSet.lineWidth = 1.5f
-
-        chartInterAnkle.data = LineData(dataSet)
-        addStrideHighlights(chartInterAnkle, signals, strides)
-        chartInterAnkle.invalidate()
-    }
-
-    private fun populateKneeAnglesChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val leftEntries = mutableListOf<Entry>()
-        val rightEntries = mutableListOf<Entry>()
-
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            if (!t.isNaN()) {
-                if (!signals.kneeAngleLeft[i].isNaN()) {
-                    leftEntries.add(Entry(t, signals.kneeAngleLeft[i]))
-                }
-                if (!signals.kneeAngleRight[i].isNaN()) {
-                    rightEntries.add(Entry(t, signals.kneeAngleRight[i]))
-                }
-            }
+        chart.data = LineData(dataSets)
+        if (addZeroLine) {
+            val zeroLine = LimitLine(0f, "").apply { lineColor = Color.GRAY; lineWidth = 0.8f }
+            chart.axisLeft.addLimitLine(zeroLine)
         }
-
-        val leftDataSet = LineDataSet(leftEntries, "Left Knee")
-        leftDataSet.color = Color.parseColor("#3498DB")
-        leftDataSet.setDrawCircles(false)
-        leftDataSet.setDrawValues(false)
-        leftDataSet.lineWidth = 1.5f
-
-        val rightDataSet = LineDataSet(rightEntries, "Right Knee")
-        rightDataSet.color = Color.parseColor("#E74C3C")
-        rightDataSet.setDrawCircles(false)
-        rightDataSet.setDrawValues(false)
-        rightDataSet.lineWidth = 1.5f
-
-        chartKneeAngles.data = LineData(leftDataSet, rightDataSet)
-        addStrideHighlights(chartKneeAngles, signals, strides)
-        chartKneeAngles.invalidate()
-    }
-
-    private fun populateAnkleYChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val leftEntries = mutableListOf<Entry>()
-        val rightEntries = mutableListOf<Entry>()
-
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            if (!t.isNaN()) {
-                // Invert Y so down is down on screen
-                if (!signals.ankleLeftY[i].isNaN()) {
-                    leftEntries.add(Entry(t, -signals.ankleLeftY[i]))
-                }
-                if (!signals.ankleRightY[i].isNaN()) {
-                    rightEntries.add(Entry(t, -signals.ankleRightY[i]))
-                }
-            }
-        }
-
-        val leftDataSet = LineDataSet(leftEntries, "Left Ankle Y")
-        leftDataSet.color = Color.parseColor("#3498DB")
-        leftDataSet.setDrawCircles(false)
-        leftDataSet.setDrawValues(false)
-        leftDataSet.lineWidth = 1.5f
-
-        val rightDataSet = LineDataSet(rightEntries, "Right Ankle Y")
-        rightDataSet.color = Color.parseColor("#E74C3C")
-        rightDataSet.setDrawCircles(false)
-        rightDataSet.setDrawValues(false)
-        rightDataSet.lineWidth = 1.5f
-
-        chartAnkleY.data = LineData(leftDataSet, rightDataSet)
-        addStrideHighlights(chartAnkleY, signals, strides)
-        chartAnkleY.invalidate()
-    }
-
-    private fun populateAnkleVyChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val leftEntries = mutableListOf<Entry>()
-        val rightEntries = mutableListOf<Entry>()
-
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            if (!t.isNaN()) {
-                if (!signals.ankleLeftVy[i].isNaN()) {
-                    leftEntries.add(Entry(t, signals.ankleLeftVy[i]))
-                }
-                if (!signals.ankleRightVy[i].isNaN()) {
-                    rightEntries.add(Entry(t, signals.ankleRightVy[i]))
-                }
-            }
-        }
-
-        val leftDataSet = LineDataSet(leftEntries, "Left Ankle Vy")
-        leftDataSet.color = Color.parseColor("#3498DB")
-        leftDataSet.setDrawCircles(false)
-        leftDataSet.setDrawValues(false)
-        leftDataSet.lineWidth = 1.5f
-
-        val rightDataSet = LineDataSet(rightEntries, "Right Ankle Vy")
-        rightDataSet.color = Color.parseColor("#E74C3C")
-        rightDataSet.setDrawCircles(false)
-        rightDataSet.setDrawValues(false)
-        rightDataSet.lineWidth = 1.5f
-
-        chartAnkleVy.data = LineData(leftDataSet, rightDataSet)
-        
-        // Add zero line for velocity
-        val zeroLine = LimitLine(0f, "")
-        zeroLine.lineColor = Color.GRAY
-        zeroLine.lineWidth = 0.8f
-        chartAnkleVy.axisLeft.addLimitLine(zeroLine)
-        
-        addStrideHighlights(chartAnkleVy, signals, strides)
-        chartAnkleVy.invalidate()
-    }
-
-    private fun populateHipYChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val leftEntries = mutableListOf<Entry>()
-        val rightEntries = mutableListOf<Entry>()
-
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            if (!t.isNaN()) {
-                // Invert Y so down is down on screen
-                if (!signals.hipLeftY[i].isNaN()) {
-                    leftEntries.add(Entry(t, -signals.hipLeftY[i]))
-                }
-                if (!signals.hipRightY[i].isNaN()) {
-                    rightEntries.add(Entry(t, -signals.hipRightY[i]))
-                }
-            }
-        }
-
-        val leftDataSet = LineDataSet(leftEntries, "Left Hip Y")
-        leftDataSet.color = Color.parseColor("#3498DB")
-        leftDataSet.setDrawCircles(false)
-        leftDataSet.setDrawValues(false)
-        leftDataSet.lineWidth = 1.5f
-
-        val rightDataSet = LineDataSet(rightEntries, "Right Hip Y")
-        rightDataSet.color = Color.parseColor("#E74C3C")
-        rightDataSet.setDrawCircles(false)
-        rightDataSet.setDrawValues(false)
-        rightDataSet.lineWidth = 1.5f
-
-        chartHipY.data = LineData(leftDataSet, rightDataSet)
-        addStrideHighlights(chartHipY, signals, strides)
-        chartHipY.invalidate()
-    }
-
-    private fun populateTrunkChart(signals: Signals, strides: List<GaitVision.com.gait.Stride>?) {
-        val entries = mutableListOf<Entry>()
-
-        for (i in signals.timestamps.indices) {
-            val t = signals.timestamps[i]
-            val v = signals.trunkAngle[i]
-            if (!t.isNaN() && !v.isNaN()) {
-                entries.add(Entry(t, v))
-            }
-        }
-
-        val dataSet = LineDataSet(entries, "Trunk Angle")
-        dataSet.color = Color.parseColor("#9B59B6")
-        dataSet.setDrawCircles(false)
-        dataSet.setDrawValues(false)
-        dataSet.lineWidth = 1.5f
-
-        chartTrunk.data = LineData(dataSet)
-        
-        // Add zero line
-        val zeroLine = LimitLine(0f, "")
-        zeroLine.lineColor = Color.GRAY
-        zeroLine.lineWidth = 0.8f
-        chartTrunk.axisLeft.addLimitLine(zeroLine)
-        
-        addStrideHighlights(chartTrunk, signals, strides)
-        chartTrunk.invalidate()
+        addStrideHighlights(chart, signals, strides)
+        chart.invalidate()
     }
 
     /**

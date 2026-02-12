@@ -26,9 +26,9 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
  */
 class MediaPipePoseBackend(
     context: Context,
-    minDetectionConfidence: Float = 0.40f,  // OPTIMAL_CONFIG value
-    minTrackingConfidence: Float = 0.61f,   // OPTIMAL_CONFIG value
-    minPresenceConfidence: Float = 0.5f,
+    private val minDetectionConfidence: Float = 0.40f,  // OPTIMAL_CONFIG value
+    private val minTrackingConfidence: Float = 0.61f,   // OPTIMAL_CONFIG value
+    private val minPresenceConfidence: Float = 0.5f,
     useGpu: Boolean = true  // GPU delegate for ~2-3x speedup
 ) {
     
@@ -37,63 +37,40 @@ class MediaPipePoseBackend(
     private var usingGpu: Boolean = false
     
     init {
-        // Try GPU first, fall back to CPU if GPU fails
-        var initialized = false
+        val delegates = if (useGpu) listOf(Delegate.GPU, Delegate.CPU) else listOf(Delegate.CPU)
         
-        if (useGpu) {
+        for (delegate in delegates) {
             try {
-                val baseOptions = BaseOptions.builder()
-                    .setModelAssetPath("pose_landmarker_heavy.task")
-                    .setDelegate(Delegate.GPU)
-                    .build()
-                
-                val options = PoseLandmarker.PoseLandmarkerOptions.builder()
-                    .setBaseOptions(baseOptions)
-                    .setRunningMode(RunningMode.VIDEO)
-                    .setMinPoseDetectionConfidence(minDetectionConfidence)
-                    .setMinPosePresenceConfidence(minPresenceConfidence)
-                    .setMinTrackingConfidence(minTrackingConfidence)
-                    .setOutputSegmentationMasks(false)
-                    .build()
-                
-                landmarker = PoseLandmarker.createFromOptions(context, options)
-                usingGpu = true
-                initialized = true
-                
-                Log.d(TAG, "Initialized MediaPipe with GPU delegate: " +
+                landmarker = buildLandmarker(delegate)
+                usingGpu = delegate == Delegate.GPU
+                Log.d(TAG, "Initialized MediaPipe with ${delegate.name} delegate: " +
                         "det_conf=$minDetectionConfidence, track_conf=$minTrackingConfidence")
+                break
             } catch (e: Exception) {
-                Log.w(TAG, "GPU delegate failed, falling back to CPU: ${e.message}")
+                if (delegate == Delegate.GPU) {
+                    Log.w(TAG, "GPU delegate failed, falling back to CPU: ${e.message}")
+                } else {
+                    Log.e(TAG, "Failed to initialize MediaPipe PoseLandmarker", e)
+                    throw e
+                }
             }
         }
-        
-        // Fallback to CPU if GPU failed or wasn't requested
-        if (!initialized) {
-            try {
-                val baseOptions = BaseOptions.builder()
-                    .setModelAssetPath("pose_landmarker_heavy.task")
-                    .setDelegate(Delegate.CPU)
-                    .build()
-                
-                val options = PoseLandmarker.PoseLandmarkerOptions.builder()
-                    .setBaseOptions(baseOptions)
-                    .setRunningMode(RunningMode.VIDEO)
-                    .setMinPoseDetectionConfidence(minDetectionConfidence)
-                    .setMinPosePresenceConfidence(minPresenceConfidence)
-                    .setMinTrackingConfidence(minTrackingConfidence)
-                    .setOutputSegmentationMasks(false)
-                    .build()
-                
-                landmarker = PoseLandmarker.createFromOptions(context, options)
-                usingGpu = false
-                
-                Log.d(TAG, "Initialized MediaPipe with CPU delegate: " +
-                        "det_conf=$minDetectionConfidence, track_conf=$minTrackingConfidence")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize MediaPipe PoseLandmarker", e)
-                throw e
-            }
-        }
+    }
+    
+    private fun buildLandmarker(delegate: Delegate): PoseLandmarker {
+        val baseOptions = BaseOptions.builder()
+            .setModelAssetPath("pose_landmarker_heavy.task")
+            .setDelegate(delegate)
+            .build()
+        val options = PoseLandmarker.PoseLandmarkerOptions.builder()
+            .setBaseOptions(baseOptions)
+            .setRunningMode(RunningMode.VIDEO)
+            .setMinPoseDetectionConfidence(minDetectionConfidence)
+            .setMinPosePresenceConfidence(minPresenceConfidence)
+            .setMinTrackingConfidence(minTrackingConfidence)
+            .setOutputSegmentationMasks(false)
+            .build()
+        return PoseLandmarker.createFromOptions(context, options)
     }
     
     /**

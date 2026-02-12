@@ -27,23 +27,6 @@ object GaitConfig {
     const val EXTREMA_PERCENTILE_LO = 5.0f
     const val EXTREMA_PERCENTILE_HI = 95.0f
     
-    // ROI Tracking params (mirrors PC ROITracker)
-    const val ROI_MARGIN = 1.4f                    // ROI is margin x body size
-    const val ROI_EXPANDED_MARGIN = 1.8f           // Expanded margin when quality drops
-    const val ROI_CENTER_EMA_ALPHA = 0.3f          // Smoothing for center movement
-    const val ROI_SIZE_EXPAND_ALPHA = 0.5f         // Fast expansion
-    const val ROI_SIZE_SHRINK_ALPHA = 0.1f         // Slow shrinking
-    const val ROI_TARGET_SIZE = 512                // Resize ROI to this for pose
-    const val ROI_ACQUIRE_STABLE_FRAMES = 10       // Frames needed to lock tracking
-    const val ROI_QUALITY_WINDOW_SIZE = 15         // Rolling window for quality monitoring
-    const val ROI_QUALITY_THRESHOLD = 0.3f         // Far-leg conf below this = degraded
-    const val ROI_DEGRADED_RATIO_THRESHOLD = 0.5f  // 50% of window degraded = expand
-    const val ROI_REACQUIRE_FRAMES = 15            // Burst full-frame frames during reacquire
-    const val ROI_FAIL_RATIO_TRACK = 0.30f         // >= 30% failures in TRACK -> EXPAND
-    const val ROI_FAIL_RATIO_EXPAND = 0.50f        // >= 50% failures in EXPAND -> REACQUIRE
-    const val ROI_CONSECUTIVE_FAIL_REACQUIRE = 5   // Consecutive failures in TRACK -> REACQUIRE
-    const val ROI_MIN_DWELL_FRAMES = 10            // Min frames in state before transition
-    
     // Video processing options
     const val DEFAULT_FPS = 30f                    // Fallback if FPS detection fails
     const val CLAHE_CLIP_LIMIT = 3.0f              // CLAHE contrast enhancement clip limit
@@ -245,55 +228,4 @@ data class Signals(
     var ankleRightVy: FloatArray,
     var hipAvgVy: FloatArray
 ) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-        other as Signals
-        return timestamps.contentEquals(other.timestamps) &&
-               frameIndices.contentEquals(other.frameIndices) &&
-               isValid.contentEquals(other.isValid) &&
-               interAnkleDist.contentEquals(other.interAnkleDist) &&
-               kneeAngleLeft.contentEquals(other.kneeAngleLeft) &&
-               kneeAngleRight.contentEquals(other.kneeAngleRight) &&
-               trunkAngle.contentEquals(other.trunkAngle) &&
-               ankleAngleLeft.contentEquals(other.ankleAngleLeft) &&
-               ankleAngleRight.contentEquals(other.ankleAngleRight) &&
-               hipAngleLeft.contentEquals(other.hipAngleLeft) &&
-               hipAngleRight.contentEquals(other.hipAngleRight) &&
-               strideAngle.contentEquals(other.strideAngle) &&
-               ankleLeftX.contentEquals(other.ankleLeftX) &&
-               ankleRightX.contentEquals(other.ankleRightX) &&
-               ankleLeftY.contentEquals(other.ankleLeftY) &&
-               ankleRightY.contentEquals(other.ankleRightY) &&
-               hipLeftY.contentEquals(other.hipLeftY) &&
-               hipRightY.contentEquals(other.hipRightY) &&
-               ankleLeftVy.contentEquals(other.ankleLeftVy) &&
-               ankleRightVy.contentEquals(other.ankleRightVy) &&
-               hipAvgVy.contentEquals(other.hipAvgVy)
-    }
-
-    override fun hashCode(): Int {
-        var result = timestamps.contentHashCode()
-        result = 31 * result + frameIndices.contentHashCode()
-        result = 31 * result + isValid.contentHashCode()
-        result = 31 * result + interAnkleDist.contentHashCode()
-        result = 31 * result + kneeAngleLeft.contentHashCode()
-        result = 31 * result + kneeAngleRight.contentHashCode()
-        result = 31 * result + trunkAngle.contentHashCode()
-        result = 31 * result + ankleAngleLeft.contentHashCode()
-        result = 31 * result + ankleAngleRight.contentHashCode()
-        result = 31 * result + hipAngleLeft.contentHashCode()
-        result = 31 * result + hipAngleRight.contentHashCode()
-        result = 31 * result + strideAngle.contentHashCode()
-        result = 31 * result + ankleLeftX.contentHashCode()
-        result = 31 * result + ankleRightX.contentHashCode()
-        result = 31 * result + ankleLeftY.contentHashCode()
-        result = 31 * result + ankleRightY.contentHashCode()
-        result = 31 * result + hipLeftY.contentHashCode()
-        result = 31 * result + hipRightY.contentHashCode()
-        result = 31 * result + ankleLeftVy.contentHashCode()
-        result = 31 * result + ankleRightVy.contentHashCode()
-        result = 31 * result + hipAvgVy.contentHashCode()
-        return result
-    }
 }

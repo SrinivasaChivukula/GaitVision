@@ -1,6 +1,5 @@
 package GaitVision.com
 
-import android.graphics.Bitmap
 import android.net.Uri
 import GaitVision.com.gait.GaitFeatures
 import GaitVision.com.gait.GaitDiagnostics
@@ -12,7 +11,6 @@ import GaitVision.com.mediapipe.PoseFrame
 //Any URI or frames used in application
 var galleryUri : Uri? = null
 var editedUri : Uri? = null
-var frameList : MutableList<Bitmap> = mutableListOf()
 
 // Pose frames for feature extraction (PC pipeline compatibility)
 var poseFrames: MutableList<PoseFrame> = mutableListOf()
@@ -42,7 +40,6 @@ var videoLength: Long = 0
 
 // Video processing options (mirrors PC pipeline options)
 var enableCLAHE: Boolean = false  // CLAHE disabled - testing without for parity comparison
-var enableROIRetry: Boolean = false  // EXPERIMENTAL/OFF - ROI retry non-functional in fast path (frameList always empty)
 var forceCpuInference: Boolean = false  // GPU delegate for ~2-3x speedup (falls back to CPU automatically if GPU fails)
 
 // Debug/logging options
@@ -52,7 +49,6 @@ var enableVerboseLogging: Boolean = false  // Toggle heavy per-frame logging in 
 fun resetAnalysisState() {
     galleryUri = null
     editedUri = null
-    frameList.clear()
     poseFrames.clear()
     extractedFeatures = null
     extractionDiagnostics = null
