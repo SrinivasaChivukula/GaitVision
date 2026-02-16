@@ -39,6 +39,13 @@ data class SignalData(
     val hipLeftY: Float? = null,
     val hipRightY: Float? = null,
 
+    // Foot positions (V2: heel/toe clearance, midHip AP)
+    val heelLeftY: Float? = null,
+    val heelRightY: Float? = null,
+    val toeLeftY: Float? = null,
+    val toeRightY: Float? = null,
+    val midHipX: Float? = null,
+
     // Ankle velocities (L/R) derived from smoothed positions
     val ankleLeftVy: Float? = null,
     val ankleRightVy: Float? = null,

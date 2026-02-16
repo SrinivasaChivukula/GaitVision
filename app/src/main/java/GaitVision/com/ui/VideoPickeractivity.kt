@@ -43,7 +43,7 @@ class VideoPickerActivity : BaseActivity() {
         // photo picker api
         val pickVideoLauncher =
             registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
-                Log.d("VideoPicker", "Selected URI: $uri")
+                Log.d("GaitMedia", "Selected URI: $uri")
 
                 uri?.let { videoUri ->
                     selectedVideo = videoUri
@@ -60,9 +60,9 @@ class VideoPickerActivity : BaseActivity() {
                     videoView.setVideoURI(videoUri)
                     videoView.start()
 
-                    Log.d("VideoPicker", "Video playback started")
+                    Log.d("GaitMedia", "Video playback started")
                 } ?: run {
-                    Log.e("VideoPicker", "URI is null - no video selected or permission denied")
+                    Log.e("GaitMedia", "URI is null - no video selected or permission denied")
                     Toast.makeText(
                         this,
                         "Failed to load video. Please try again.",

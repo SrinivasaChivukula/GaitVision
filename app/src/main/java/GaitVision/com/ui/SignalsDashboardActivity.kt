@@ -37,7 +37,7 @@ import org.json.JSONObject
 class SignalsDashboardActivity : BaseActivity() {
 
     companion object {
-        private const val TAG = "SignalsDashboard"
+        private const val TAG = "GaitUI"
     }
 
     private lateinit var tvStepMode: TextView
@@ -75,6 +75,9 @@ class SignalsDashboardActivity : BaseActivity() {
         chartMap["ANKLE_Y"] = findViewById(R.id.chartAnkleY)
         chartMap["ANKLE_VY"] = findViewById(R.id.chartAnkleVy)
         chartMap["HIP_Y"] = findViewById(R.id.chartHipY)
+        chartMap["HEEL_Y"] = findViewById(R.id.chartHeelY)
+        chartMap["TOE_Y"] = findViewById(R.id.chartToeY)
+        chartMap["MIDHIP_X"] = findViewById(R.id.chartMidHipX)
         chartMap["TRUNK"] = findViewById(R.id.chartTrunk)
 
         chartMap.values.forEach { configureChart(it) }
@@ -114,7 +117,10 @@ class SignalsDashboardActivity : BaseActivity() {
         popup.menu.add(0, 3, 2, "Ankle Y Positions")
         popup.menu.add(0, 4, 3, "Ankle Velocities")
         popup.menu.add(0, 5, 4, "Hip Y Positions")
-        popup.menu.add(0, 6, 5, "Trunk Angle")
+        popup.menu.add(0, 7, 5, "Heel Y Positions")
+        popup.menu.add(0, 8, 6, "Toe Y Positions")
+        popup.menu.add(0, 9, 7, "MidHip X Position")
+        popup.menu.add(0, 6, 8, "Trunk Angle")
 
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
@@ -123,6 +129,9 @@ class SignalsDashboardActivity : BaseActivity() {
                 3 -> showChart("ANKLE_Y", "Ankle Y Positions")
                 4 -> showChart("ANKLE_VY", "Ankle Velocities")
                 5 -> showChart("HIP_Y", "Hip Y Positions")
+                7 -> showChart("HEEL_Y", "Heel Y Positions")
+                8 -> showChart("TOE_Y", "Toe Y Positions")
+                9 -> showChart("MIDHIP_X", "MidHip X Position")
                 6 -> showChart("TRUNK", "Trunk Angle")
             }
             btnSelectSignal.text = item.title
@@ -155,6 +164,9 @@ class SignalsDashboardActivity : BaseActivity() {
             3 -> "Blue = Left Ankle Y, Red = Right Ankle Y (inverted) | $strideLegend"
             4 -> "Blue = Left Ankle Vy, Red = Right Ankle Vy | $strideLegend"
             5 -> "Blue = Left Hip Y, Red = Right Hip Y (inverted) | $strideLegend"
+            7 -> "Blue = Left Heel Y, Red = Right Heel Y (inverted) | $strideLegend"
+            8 -> "Blue = Left Toe Y, Red = Right Toe Y (inverted) | $strideLegend"
+            9 -> "MidHip X (anteroposterior) | $strideLegend"
             6 -> "Trunk lean angle (degrees) | $strideLegend"
             else -> "Blue = Left, Red = Right | $strideLegend"
         }
@@ -189,10 +201,13 @@ class SignalsDashboardActivity : BaseActivity() {
             }
 
             // Set globals so all existing code works
-            extractedSignals = buildSignalsFromDb(signalRows)
+            val signals = buildSignalsFromDb(signalRows)
+            extractedSignals = signals
             stepSignalMode = result?.stepSignalMode
             extractedStrides = parseStridesJson(result?.stridesJson)
             selectedStrideIndices = parseSelectedIndicesJson(result?.selectedStrideIndicesJson)
+
+            Log.d(TAG, "Loaded signals: ${signals.timestamps.size} frames, heelY non-NaN=${signals.heelLeftY.count { !it.isNaN() }}, toeY=${signals.toeLeftY.count { !it.isNaN() }}, midHipX=${signals.midHipX.count { !it.isNaN() }}")
 
             displaySignals()
         }
@@ -244,6 +259,11 @@ class SignalsDashboardActivity : BaseActivity() {
         val hipRightY = FloatArray(n) { rows[it].hipRightY ?: Float.NaN }
         val ankleLeftVy = FloatArray(n) { rows[it].ankleLeftVy ?: Float.NaN }
         val ankleRightVy = FloatArray(n) { rows[it].ankleRightVy ?: Float.NaN }
+        val heelLeftY = FloatArray(n) { rows[it].heelLeftY ?: Float.NaN }
+        val heelRightY = FloatArray(n) { rows[it].heelRightY ?: Float.NaN }
+        val toeLeftY = FloatArray(n) { rows[it].toeLeftY ?: Float.NaN }
+        val toeRightY = FloatArray(n) { rows[it].toeRightY ?: Float.NaN }
+        val midHipX = FloatArray(n) { rows[it].midHipX ?: Float.NaN }
         // Fields not stored in signal_data — fill with NaN
         val empty = FloatArray(n) { Float.NaN }
 
@@ -266,6 +286,11 @@ class SignalsDashboardActivity : BaseActivity() {
             ankleRightY = ankleRightY,
             hipLeftY = hipLeftY,
             hipRightY = hipRightY,
+            heelLeftY = heelLeftY,
+            heelRightY = heelRightY,
+            toeLeftY = toeLeftY,
+            toeRightY = toeRightY,
+            midHipX = midHipX,
             ankleLeftVy = ankleLeftVy,
             ankleRightVy = ankleRightVy,
             hipAvgVy = empty
@@ -329,6 +354,13 @@ class SignalsDashboardActivity : BaseActivity() {
             "HIP_Y" -> listOf(
                 SeriesConfig(signals.hipLeftY, "Left Hip Y", "#3498DB", invertY = true),
                 SeriesConfig(signals.hipRightY, "Right Hip Y", "#E74C3C", invertY = true))
+            "HEEL_Y" -> listOf(
+                SeriesConfig(signals.heelLeftY, "Left Heel Y", "#3498DB", invertY = true),
+                SeriesConfig(signals.heelRightY, "Right Heel Y", "#E74C3C", invertY = true))
+            "TOE_Y" -> listOf(
+                SeriesConfig(signals.toeLeftY, "Left Toe Y", "#3498DB", invertY = true),
+                SeriesConfig(signals.toeRightY, "Right Toe Y", "#E74C3C", invertY = true))
+            "MIDHIP_X" -> listOf(SeriesConfig(signals.midHipX, "MidHip X", "#9B59B6"))
             "TRUNK" -> listOf(SeriesConfig(signals.trunkAngle, "Trunk Angle", "#9B59B6"))
             else -> return
         }

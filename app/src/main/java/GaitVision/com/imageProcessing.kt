@@ -41,6 +41,8 @@ import GaitVision.com.gait.GaitDiagnostics
 import GaitVision.com.gait.GaitScorer
 import GaitVision.com.gait.ScoringResult
 
+private const val TAG_MEDIA = "GaitMedia"
+
 /**
  * Convert YUV_420_888 Image (from MediaCodec) to ARGB Bitmap.
  * 
@@ -204,7 +206,7 @@ fun initializeMediaPipeBackend(context: Context) {
         val onEmulator = isEmulator()
         val useGpu = !forceCpuInference && !onEmulator
         if (onEmulator) {
-            Log.d("ImageProcessing", "Emulator detected — forcing CPU delegate")
+            Log.d(TAG_MEDIA, "Emulator detected — forcing CPU delegate")
         }
         mediaPipeBackend = MediaPipePoseBackend(
             context = context,
@@ -214,7 +216,7 @@ fun initializeMediaPipeBackend(context: Context) {
             useGpu = useGpu
         )
         val delegateType = if (useGpu) "GPU" else "CPU${if (onEmulator) " (emulator)" else " (parity mode)"}"
-        Log.d("ImageProcessing", "MediaPipe backend initialized with OPTIMAL_CONFIG, delegate: $delegateType")
+        Log.d(TAG_MEDIA, "MediaPipe backend initialized with OPTIMAL_CONFIG, delegate: $delegateType")
     }
 }
 
@@ -234,7 +236,7 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
         val fps = frameRateStr?.toFloatOrNull()
         
         if (fps != null && fps > 0) {
-            Log.d("ImageProcessing", "Detected FPS from metadata: $fps")
+            Log.d(TAG_MEDIA, "Detected FPS from metadata: $fps")
             fps
         } else {
             // Fallback: estimate from duration and frame count
@@ -243,15 +245,15 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
             
             if (videoFrameCount != null && videoFrameCount > 0 && durationMs > 0) {
                 val estimatedFps = (videoFrameCount * 1000f) / durationMs
-                Log.d("ImageProcessing", "Estimated FPS from frame count: $estimatedFps")
+                Log.d(TAG_MEDIA, "Estimated FPS from frame count: $estimatedFps")
                 estimatedFps.coerceIn(15f, 120f)  // Sanity check
             } else {
-                Log.d("ImageProcessing", "Could not detect FPS, using default 30")
+                Log.d(TAG_MEDIA, "Could not detect FPS, using default 30")
                 30f
             }
         }
     } catch (e: Exception) {
-        Log.w("ImageProcessing", "Error detecting FPS: ${e.message}, using default 30")
+        Log.w(TAG_MEDIA, "Error detecting FPS: ${e.message}, using default 30")
         30f
     } finally {
         retriever.release()
@@ -264,7 +266,7 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
 fun releaseMediaPipeBackend() {
     mediaPipeBackend?.release()
     mediaPipeBackend = null
-    Log.d("ImageProcessing", "MediaPipe backend released")
+    Log.d(TAG_MEDIA, "MediaPipe backend released")
 }
 
 
@@ -292,7 +294,7 @@ fun getLRSwapIndex(idx: Int): Int {
  * Low-confidence frames are skipped and carry forward the previous assignment.
  */
 fun stabilizeLandmarkIdentity(poseSeq: PoseSequence): PoseSequence {
-    val TAG = "IdentityStab"
+    val TAG = TAG_MEDIA
     val MIN_CONF = GaitVision.com.gait.GaitConfig.MIN_CONFIDENCE
     val HYSTERESIS = 0.8f
 
@@ -554,7 +556,7 @@ fun processFrameWithMediaPipe(
  * 9. Compute gait scores
  */
 suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppCompatActivity): Uri? {
-    val TAG = "ImageProcessing"
+    val TAG = TAG_MEDIA
     
     // Clear all data
     poseFrames.clear()
@@ -582,7 +584,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
         activity.findViewById<TextView>(R.id.CreatingProgressValue).visibility = GONE
     }
 
-    // === Set up MediaExtractor for FAST video reading ===
+    // Set up MediaExtractor for fast video reading
     val extractor = MediaExtractor()
     val retriever = MediaMetadataRetriever()
     try {
@@ -646,7 +648,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     Log.d(TAG, "Video: ${videoLengthMs}ms @ ${fps}fps, ${width}x${height}, ~$totalFrames frames")
     Log.d(TAG, "Using FAST MediaCodec extraction (5-10x faster than getFrameAtTime)")
     
-    // === Set up MediaCodec decoder ===
+    // Set up MediaCodec decoder
     val decoder: MediaCodec
     try {
         decoder = MediaCodec.createDecoderByType(videoMime)
@@ -665,7 +667,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     // Initialize MediaPipe
     initializeMediaPipeBackend(context)
     
-    // === Set up video encoder ===
+    // Set up video encoder
     val encoderState: EncoderState
     try {
         encoderState = createEncoderState(outputPath, width, height, fps)
@@ -692,7 +694,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     val progressText = activity.findViewById<TextView>(R.id.splittingProgressValue)
     var lastProgress = -1
 
-    // === FAST MediaCodec STREAMING LOOP ===
+    // MediaCodec streaming loop
     while (!outputDone) {
         // Feed input to decoder
         if (!inputDone) {
@@ -814,7 +816,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
  * Used if MediaCodec initialization fails.
  */
 private suspend fun procVidEmptyFallback(context: Context, outputPath: String, activity: AppCompatActivity): Uri? {
-    val TAG = "ImageProcessing"
+    val TAG = TAG_MEDIA
     Log.w(TAG, "Using SLOW fallback method (getFrameAtTime)")
     
     // Detect video FPS
@@ -884,10 +886,10 @@ private suspend fun extractGaitFeatures(
     totalFrames: Int,
     activity: AppCompatActivity
 ) {
-    Log.d("ImageProcessing", "Starting feature extraction with ${poseFrames.size} pose frames")
+    Log.d(TAG_MEDIA, "Starting feature extraction with ${poseFrames.size} pose frames")
     
     if (poseFrames.isEmpty()) {
-        Log.w("ImageProcessing", "No pose frames collected, skipping feature extraction")
+        Log.w(TAG_MEDIA, "No pose frames collected, skipping feature extraction")
         return
     }
     
@@ -911,7 +913,7 @@ private suspend fun extractGaitFeatures(
         // Stabilize L/R identity, then normalize walking direction
         poseSequence = stabilizeLandmarkIdentity(poseSequence)
         poseSequence = featureExtractor.normalizeDirection(poseSequence)
-        Log.d("ImageProcessing", "Walking direction: ${poseSequence.walkingDirection}, flipped: ${poseSequence.wasFlipped}")
+        Log.d(TAG_MEDIA, "Walking direction: ${poseSequence.walkingDirection}, flipped: ${poseSequence.wasFlipped}")
         
         // Extract features
         val (features, diagnostics) = featureExtractor.extract(poseSequence)
@@ -920,28 +922,28 @@ private suspend fun extractGaitFeatures(
         extractionDiagnostics = diagnostics
         
         if (features != null) {
-            Log.d("ImageProcessing", "Feature extraction successful!")
-            Log.d("ImageProcessing", "  Cadence: ${features.cadence_spm} spm")
-            Log.d("ImageProcessing", "  Stride time: ${features.stride_time_s} s")
-            Log.d("ImageProcessing", "  Knee ROM L/R: ${features.knee_left_rom}° / ${features.knee_right_rom}°")
-            Log.d("ImageProcessing", "  Valid strides: ${features.valid_stride_count}")
+            Log.d(TAG_MEDIA, "Feature extraction successful!")
+            Log.d(TAG_MEDIA, "  Cadence: ${features.cadence_spm} spm")
+            Log.d(TAG_MEDIA, "  Stride time: ${features.stride_time_s} s")
+            Log.d(TAG_MEDIA, "  Knee ROM L/R: ${features.knee_left_rom}° / ${features.knee_right_rom}°")
+            Log.d(TAG_MEDIA, "  Valid strides: ${features.valid_stride_count}")
             
             // Compute gait score
             val scorer = GaitScorer(context)
             if (scorer.initialize()) {
                 scoringResult = scorer.score(features)
-                Log.d("ImageProcessing", "Gait scores - AE: ${scoringResult?.aeScore}, Ridge: ${scoringResult?.ridgeScore}, PCA: ${scoringResult?.pcaScore}")
+                Log.d(TAG_MEDIA, "Gait scores - AE: ${scoringResult?.aeScore}, Ridge: ${scoringResult?.ridgeScore}, PCA: ${scoringResult?.pcaScore}")
                 scorer.release()
             } else {
-                Log.w("ImageProcessing", "Failed to initialize gait scorer")
+                Log.w(TAG_MEDIA, "Failed to initialize gait scorer")
             }
         } else {
-            Log.w("ImageProcessing", "Feature extraction failed: ${diagnostics.qualityFlag}")
-            Log.w("ImageProcessing", "  Reasons: ${diagnostics.rejectionReasons}")
+            Log.w(TAG_MEDIA, "Feature extraction failed: ${diagnostics.qualityFlag}")
+            Log.w(TAG_MEDIA, "  Reasons: ${diagnostics.rejectionReasons}")
         }
         
     } catch (e: Exception) {
-        Log.e("ImageProcessing", "Error during feature extraction", e)
+        Log.e(TAG_MEDIA, "Error during feature extraction", e)
     }
 }
 

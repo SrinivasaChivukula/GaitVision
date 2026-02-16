@@ -30,7 +30,7 @@ class FeatureExtractor(
     private val extremaPercentileHi: Float = GaitConfig.EXTREMA_PERCENTILE_HI
 ) {
     companion object {
-        private const val TAG = "GaitDebug"
+        private const val TAG = "GaitLogging"
         
         // Core keypoints for gait analysis
         val CORE_KEYPOINTS = intArrayOf(
@@ -47,7 +47,7 @@ class FeatureExtractor(
      * Extract gait features from pose sequence.
      */
     fun extract(poseSeq: PoseSequence): Pair<GaitFeatures?, GaitDiagnostics> {
-        Log.d(TAG, "=== VIDEO INFO ===")
+        Log.d(TAG, "Video info")
         Log.d(TAG, "  numFramesTotal: ${poseSeq.numFramesTotal}")
         Log.d(TAG, "  detectedFrames: ${poseSeq.frames.size}")
         Log.d(TAG, "  fps: ${poseSeq.fps}")
@@ -65,7 +65,10 @@ class FeatureExtractor(
         }
         
         // Full pipeline debug (controlled by enableVerboseLogging)
-        
+        if (enableVerboseLogging) {
+            Log.d(TAG, "VERBOSE logging ON: raw landmarks, signals, step signal will be logged")
+        }
+
         // Step 1: Compute signals
         var signals = computeSignals(poseSeq)
         
@@ -85,7 +88,7 @@ class FeatureExtractor(
         // Verbose per-frame logging (expensive - only enable for debugging)
         if (enableVerboseLogging) {
             Log.d(TAG, "")
-            Log.d(TAG, "========== VERBOSE DEBUG: RAW LANDMARKS ==========")
+            Log.d(TAG, "Verbose: raw landmarks")
             Log.d(TAG, "frame,la_x,la_y,ra_x,ra_y,lk_x,lk_y,rk_x,rk_y,lh_x,lh_y,rh_x,rh_y,la_conf,ra_conf,lk_conf,rk_conf")
             for (frameIdx in 0 until poseSeq.numFramesTotal) {
                 val frame = poseSeq.frames.find { it.frameIdx == frameIdx }
@@ -107,7 +110,7 @@ class FeatureExtractor(
             }
             
             Log.d(TAG, "")
-            Log.d(TAG, "========== VERBOSE DEBUG: SIGNALS ==========")
+            Log.d(TAG, "Verbose: signals")
             Log.d(TAG, "frame,inter_ankle,knee_left,knee_right")
             for (i in 0 until signals.timestamps.size) {
                 Log.d(TAG, "$i,${String.format("%.6f", signals.interAnkleDist[i])},${String.format("%.6f", signals.kneeAngleLeft[i])},${String.format("%.6f", signals.kneeAngleRight[i])}")
@@ -121,7 +124,7 @@ class FeatureExtractor(
             }
             
             Log.d(TAG, "")
-            Log.d(TAG, "========== VERBOSE DEBUG: STEP SIGNAL ==========")
+            Log.d(TAG, "Verbose: step signal")
             Log.d(TAG, "Mode: inter_ankle (single signal)")
             Log.d(TAG, "frame,value")
             for (i in signals.interAnkleDist.indices) {
@@ -238,7 +241,7 @@ class FeatureExtractor(
         )
     }
     
-    // --- Signal Computation ---
+    // Signal computation
     
     private fun computeSignals(poseSeq: PoseSequence): Signals {
         val n = poseSeq.numFramesTotal
@@ -267,6 +270,11 @@ class FeatureExtractor(
         val ankleRightY = FloatArray(n) { Float.NaN }
         val hipLeftY = FloatArray(n) { Float.NaN }
         val hipRightY = FloatArray(n) { Float.NaN }
+        val heelLeftY = FloatArray(n) { Float.NaN }
+        val heelRightY = FloatArray(n) { Float.NaN }
+        val toeLeftY = FloatArray(n) { Float.NaN }
+        val toeRightY = FloatArray(n) { Float.NaN }
+        val midHipX = FloatArray(n) { Float.NaN }
         
         for (frame in poseSeq.frames) {
             val idx = frame.frameIdx
@@ -291,6 +299,11 @@ class FeatureExtractor(
             ankleRightY[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][1]
             hipLeftY[idx] = kp[MediaPipePoseBackend.LEFT_HIP][1]
             hipRightY[idx] = kp[MediaPipePoseBackend.RIGHT_HIP][1]
+            heelLeftY[idx] = kp[MediaPipePoseBackend.LEFT_HEEL][1]
+            heelRightY[idx] = kp[MediaPipePoseBackend.RIGHT_HEEL][1]
+            toeLeftY[idx] = kp[MediaPipePoseBackend.LEFT_FOOT_INDEX][1]
+            toeRightY[idx] = kp[MediaPipePoseBackend.RIGHT_FOOT_INDEX][1]
+            midHipX[idx] = (kp[MediaPipePoseBackend.LEFT_HIP][0] + kp[MediaPipePoseBackend.RIGHT_HIP][0]) / 2f
             
             // Knee angles (hip-knee-ankle) - used in features
             kneeAngleLeft[idx] = computeAngle(
@@ -366,6 +379,11 @@ class FeatureExtractor(
             ankleRightY = ankleRightY,
             hipLeftY = hipLeftY,
             hipRightY = hipRightY,
+            heelLeftY = heelLeftY,
+            heelRightY = heelRightY,
+            toeLeftY = toeLeftY,
+            toeRightY = toeRightY,
+            midHipX = midHipX,
             ankleLeftVy = FloatArray(n) { Float.NaN },
             ankleRightVy = FloatArray(n) { Float.NaN },
             hipAvgVy = FloatArray(n) { Float.NaN }
@@ -392,12 +410,13 @@ class FeatureExtractor(
         return Math.toDegrees(atan2(dx, -dy).toDouble()).toFloat()
     }
     
-    // --- Signal Processing ---
+    // Signal processing
     
     private fun interpolateSignals(signals: Signals): Signals {
         val arrays = listOf(signals.interAnkleDist, signals.kneeAngleLeft, signals.kneeAngleRight,
             signals.trunkAngle, signals.ankleLeftX, signals.ankleRightX,
-            signals.ankleLeftY, signals.ankleRightY, signals.hipLeftY, signals.hipRightY)
+            signals.ankleLeftY, signals.ankleRightY, signals.hipLeftY, signals.hipRightY,
+            signals.heelLeftY, signals.heelRightY, signals.toeLeftY, signals.toeRightY, signals.midHipX)
         arrays.forEach { interpolateArray(it, maxInterpGap) }
         return signals
     }
@@ -431,8 +450,10 @@ class FeatureExtractor(
     
     private fun smoothSignals(signals: Signals): Signals {
         val arrays = listOf(signals.interAnkleDist, signals.kneeAngleLeft, signals.kneeAngleRight,
-            signals.trunkAngle, signals.ankleLeftY, signals.ankleRightY,
-            signals.hipLeftY, signals.hipRightY)
+            signals.trunkAngle, signals.ankleLeftX, signals.ankleRightX,
+            signals.ankleLeftY, signals.ankleRightY,
+            signals.hipLeftY, signals.hipRightY,
+            signals.heelLeftY, signals.heelRightY, signals.toeLeftY, signals.toeRightY, signals.midHipX)
         arrays.forEach { emaSmoothGapAware(it, emaAlpha, maxInterpGap) }
         return signals
     }
@@ -663,7 +684,7 @@ class FeatureExtractor(
         return filteredPeaks
     }
     
-    // --- Stride Segmentation and Validation ---
+    // Stride segmentation and validation
     
     private fun segmentStrides(steps: List<StepEvent>, signals: Signals, fps: Float): List<Stride> {
         if (steps.size < 3) return emptyList()
@@ -713,7 +734,7 @@ class FeatureExtractor(
                 return@map stride.copy(isValid = false, invalidReason = "degenerate", qualityScore = 0f)
             }
             
-            // --- Soft scoring: 5 components, all [0,1], no hard gates ---
+            // Soft scoring: 5 components, all [0,1]
             
             val coverageScore = validPct
             
@@ -843,7 +864,7 @@ class FeatureExtractor(
         }
     }
     
-    // --- Quality-Based Stride Selection ---
+    // Quality-based stride selection
     
     private fun select2InnerCycles(strides: List<Stride>): Triple<List<Stride>, String, List<Int>> {
         val valid = strides.withIndex().filter { it.value.isValid }
@@ -854,7 +875,7 @@ class FeatureExtractor(
         var bestA = -1
         var bestB = -1
         
-        Log.d(TAG, "=== PAIR SELECTION (boundary-sharing) ===")
+        Log.d(TAG, "Pair selection")
         for (i in valid.indices) {
             for (j in i + 1 until valid.size) {
                 val a = valid[i]; val b = valid[j]
@@ -875,7 +896,7 @@ class FeatureExtractor(
         return Triple(listOf(a.value, b.value), "best_pair", listOf(a.index, b.index))
     }
     
-    // --- Feature Computation ---
+    // Feature computation
     
     private fun computeFeatures(
         signals: Signals,
@@ -886,7 +907,7 @@ class FeatureExtractor(
         val (selectedStrides, selectionReason, selectedIndices) = select2InnerCycles(validStrides)
         
         // Log stride selection details
-        Log.d(TAG, "=== STRIDE SELECTION ===")
+        Log.d(TAG, "Stride selection")
         Log.d(TAG, "Total strides: ${validStrides.size}, Valid: ${validStrides.count { it.isValid }}")
         validStrides.forEachIndexed { idx, s ->
             val marker = if (selectedIndices.contains(idx)) " [SELECTED]" else ""
@@ -1001,6 +1022,253 @@ class FeatureExtractor(
             .map { abs(it) }
         val trunkLeanStdDeg = if (trunkValuesAbs.isNotEmpty()) trunkValuesAbs.std() else 0f
         
+        // V2: Camera-robust distance features (6)
+        val strideLengthRelL = mutableListOf<Float>()
+        val strideLengthRelR = mutableListOf<Float>()
+        val ankleApRangePerStride = mutableListOf<Float>()
+        val ankleApRangePerStrideCombined = mutableListOf<Float>()  // one per stride for diff
+        val midHipDriftPerStride = mutableListOf<Float>()
+        
+        for (s in selectedStrides) {
+            val start = s.startFrame
+            val end = minOf(s.endFrame, signals.ankleLeftX.size - 1)
+            if (end <= start) continue
+            
+            val aLStart = signals.ankleLeftX[start] - signals.midHipX[start]
+            val aLEnd = signals.ankleLeftX[end] - signals.midHipX[end]
+            val aRStart = signals.ankleRightX[start] - signals.midHipX[start]
+            val aREnd = signals.ankleRightX[end] - signals.midHipX[end]
+            if (!aLStart.isNaN() && !aLEnd.isNaN()) strideLengthRelL.add(abs(aLEnd - aLStart))
+            if (!aRStart.isNaN() && !aREnd.isNaN()) strideLengthRelR.add(abs(aREnd - aRStart))
+            
+            var leftRng: Float? = null
+            var rightRng: Float? = null
+            val ankleRelL = (start until end).mapNotNull { i ->
+                val v = signals.ankleLeftX[i] - signals.midHipX[i]
+                if (!v.isNaN()) v else null
+            }
+            val ankleRelR = (start until end).mapNotNull { i ->
+                val v = signals.ankleRightX[i] - signals.midHipX[i]
+                if (!v.isNaN()) v else null
+            }
+            if (ankleRelL.size >= 5) {
+                val sorted = ankleRelL.sorted()
+                val rng = percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo)
+                ankleApRangePerStride.add(rng)
+                leftRng = rng
+            }
+            if (ankleRelR.size >= 5) {
+                val sorted = ankleRelR.sorted()
+                val rng = percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo)
+                ankleApRangePerStride.add(rng)
+                rightRng = rng
+            }
+            when {
+                leftRng != null && rightRng != null -> ankleApRangePerStrideCombined.add((leftRng + rightRng) / 2f)
+                leftRng != null -> ankleApRangePerStrideCombined.add(leftRng)
+                rightRng != null -> ankleApRangePerStrideCombined.add(rightRng)
+            }
+            
+            val mStart = signals.midHipX[start]
+            val mEnd = signals.midHipX[end]
+            if (!mStart.isNaN() && !mEnd.isNaN()) midHipDriftPerStride.add(abs(mEnd - mStart))
+        }
+        
+        val strideLengthRelLNorm = strideLengthRelL.averageOrZero() / (bodyWidth + 1e-8f)
+        val strideLengthRelRNorm = strideLengthRelR.averageOrZero() / (bodyWidth + 1e-8f)
+        val strideLengthRelAsym = asymmetryIndex(strideLengthRelLNorm, strideLengthRelRNorm)
+        val ankleApRangeRelNorm = ankleApRangePerStride.averageOrZero() / (bodyWidth + 1e-8f)
+        val midHipApDriftNorm = midHipDriftPerStride.averageOrZero() / (bodyWidth + 1e-8f)
+        
+        // V2: Timing-of-extrema (5) — argmax(signal) / cycleLen per stride, then mean (t_inter_ankle removed: circular with stride definition)
+        val tKneeLeftPeak = mutableListOf<Float>()
+        val tKneeRightPeak = mutableListOf<Float>()
+        val tTrunkPeakAbs = mutableListOf<Float>()
+        val tToeClearanceLeft = mutableListOf<Float>()
+        val tToeClearanceRight = mutableListOf<Float>()
+        for (s in selectedStrides) {
+            val start = s.startFrame
+            val end = minOf(s.endFrame, signals.kneeAngleLeft.size - 1)
+            val cycleLen = (end - start).coerceAtLeast(1)
+            fun argmaxPct(signal: FloatArray, transform: (Float) -> Float = { it }): Float? {
+                val best = (start until end).filter { !signal[it].isNaN() }
+                    .maxByOrNull { transform(signal[it]) } ?: return null
+                return (best - start).toFloat() / cycleLen
+            }
+            argmaxPct(signals.kneeAngleLeft)?.let { tKneeLeftPeak.add(it) }
+            argmaxPct(signals.kneeAngleRight)?.let { tKneeRightPeak.add(it) }
+            argmaxPct(signals.trunkAngle) { abs(it) }?.let { tTrunkPeakAbs.add(it) }
+            argmaxPct(signals.toeLeftY) { -it }?.let { tToeClearanceLeft.add(it) }  // toeClearance = -toeY
+            argmaxPct(signals.toeRightY) { -it }?.let { tToeClearanceRight.add(it) }
+        }
+        val tKneeLeftPeakPct = tKneeLeftPeak.averageOrZero()
+        val tKneeRightPeakPct = tKneeRightPeak.averageOrZero()
+        val tTrunkPeakAbsPct = tTrunkPeakAbs.averageOrZero()
+        val tToeClearanceLeftPct = tToeClearanceLeft.averageOrZero()
+        val tToeClearanceRightPct = tToeClearanceRight.averageOrZero()
+        
+        // V2: Foot clearance + pitch (8)
+        val toeClearanceLeftMax = mutableListOf<Float>()
+        val toeClearanceRightMax = mutableListOf<Float>()
+        val toeClearanceLeftRange = mutableListOf<Float>()
+        val toeClearanceRightRange = mutableListOf<Float>()
+        val footPitchLeftMean = mutableListOf<Float>()
+        val footPitchRightMean = mutableListOf<Float>()
+        val footPitchLeftRange = mutableListOf<Float>()
+        val footPitchRightRange = mutableListOf<Float>()
+        for (s in selectedStrides) {
+            val start = s.startFrame
+            val end = minOf(s.endFrame, signals.toeLeftY.size - 1)
+            val toeClearL = (start until end).mapNotNull { i ->
+                val v = -signals.toeLeftY[i]
+                if (!v.isNaN()) v else null
+            }
+            val toeClearR = (start until end).mapNotNull { i ->
+                val v = -signals.toeRightY[i]
+                if (!v.isNaN()) v else null
+            }
+            val footPitchL = (start until end).mapNotNull { i ->
+                val tc = -signals.toeLeftY[i]
+                val hc = -signals.heelLeftY[i]
+                if (!tc.isNaN() && !hc.isNaN()) tc - hc else null
+            }
+            val footPitchR = (start until end).mapNotNull { i ->
+                val tc = -signals.toeRightY[i]
+                val hc = -signals.heelRightY[i]
+                if (!tc.isNaN() && !hc.isNaN()) tc - hc else null
+            }
+            if (toeClearL.size >= 5) {
+                val sorted = toeClearL.sorted()
+                toeClearanceLeftMax.add(percentile(sorted, extremaPercentileHi))
+                toeClearanceLeftRange.add(percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo))
+            }
+            if (toeClearR.size >= 5) {
+                val sorted = toeClearR.sorted()
+                toeClearanceRightMax.add(percentile(sorted, extremaPercentileHi))
+                toeClearanceRightRange.add(percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo))
+            }
+            if (footPitchL.size >= 5) {
+                footPitchLeftMean.add(footPitchL.average().toFloat())
+                val sorted = footPitchL.sorted()
+                footPitchLeftRange.add(percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo))
+            }
+            if (footPitchR.size >= 5) {
+                footPitchRightMean.add(footPitchR.average().toFloat())
+                val sorted = footPitchR.sorted()
+                footPitchRightRange.add(percentile(sorted, extremaPercentileHi) - percentile(sorted, extremaPercentileLo))
+            }
+        }
+        val toeClearanceLeftMaxVal = toeClearanceLeftMax.averageOrZero()
+        val toeClearanceRightMaxVal = toeClearanceRightMax.averageOrZero()
+        val toeClearanceLeftRangeVal = toeClearanceLeftRange.averageOrZero()
+        val toeClearanceRightRangeVal = toeClearanceRightRange.averageOrZero()
+        val footPitchLeftMeanVal = footPitchLeftMean.averageOrZero()
+        val footPitchRightMeanVal = footPitchRightMean.averageOrZero()
+        val footPitchLeftRangeVal = footPitchLeftRange.averageOrZero()
+        val footPitchRightRangeVal = footPitchRightRange.averageOrZero()
+        
+        // V2: Trunk enrichments (4) — pooled across 2 selected strides
+        val trunkPooled = selectedStrides.flatMap { sliceStrideSignal(signals.trunkAngle, it) }
+        val trunkAbsPooled = trunkPooled.map { abs(it) }
+        val dt = if (poseSeq.fps > 0) 1f / poseSeq.fps else 0.033f
+        val trunkVelPooled = mutableListOf<Float>()
+        for (s in selectedStrides) {
+            val start = s.startFrame
+            val end = minOf(s.endFrame, signals.trunkAngle.size - 1)
+            for (i in start until end - 1) {
+                val v = (signals.trunkAngle[i + 1] - signals.trunkAngle[i]) / dt
+                if (!v.isNaN()) trunkVelPooled.add(v)
+            }
+        }
+        val trunkAbsMeanDeg = if (trunkAbsPooled.isNotEmpty()) trunkAbsPooled.average().toFloat() else 0f
+        val trunkAbsP95Deg = if (trunkAbsPooled.size >= 5) {
+            val sorted = trunkAbsPooled.sorted()
+            percentile(sorted, extremaPercentileHi)
+        } else 0f
+        val trunkVelAbs = trunkVelPooled.map { abs(it) }
+        val trunkAngVelMeanAbs = if (trunkVelAbs.isNotEmpty()) trunkVelAbs.average().toFloat() else 0f
+        val trunkAngVelP95Abs = if (trunkVelAbs.size >= 5) {
+            val sorted = trunkVelAbs.sorted()
+            percentile(sorted, extremaPercentileHi)
+        } else 0f
+        
+        // Step 6: Dual aggregation — feat_diff = abs(cycle_A − cycle_B) for per-cycle features
+        // Quality-selected strides always yield 2 values per feature.
+        fun diffOfTwo(list: List<Float>): Float {
+            require(list.size == 2) { "diffOfTwo expected 2 values, got ${list.size}" }
+            return abs(list[0] - list[1])
+        }
+        val bw = bodyWidth + 1e-8f
+        
+        val cadencePerStride = strideTimes.map { 60f / it }
+        val stepTimeAsymPerStride = selectedStrides.map { s ->
+            val t1 = s.step2TimeS - s.startTimeS
+            val t2 = s.endTimeS - s.step2TimeS
+            asymmetryIndex(t1, t2)
+        }
+        val strideLengthNormPerStride = strideLengths.map { it / bw }
+        val strideAmpNormPerStride = maxInterAnkleValues.map { it / bw }
+        val stepLengthAsymPerStride = selectedStrides.indices.map { i ->
+            val a = ankleALengths.getOrNull(i) ?: 0f
+            val b = ankleBLengths.getOrNull(i) ?: 0f
+            asymmetryIndex(a, b)
+        }
+        val strideLengthRelLNormPerStride = strideLengthRelL.map { it / bw }
+        val strideLengthRelRNormPerStride = strideLengthRelR.map { it / bw }
+        val strideLengthRelAsymPerStride = strideLengthRelL.zip(strideLengthRelR) { l, r -> asymmetryIndex(l, r) }
+        val ankleApRangeNormPerStride = ankleApRangePerStrideCombined.map { it / bw }
+        val midHipDriftNormPerStride = midHipDriftPerStride.map { it / bw }
+        
+        val cadenceDiff = diffOfTwo(cadencePerStride)
+        val strideTimeDiff = diffOfTwo(strideTimes)
+        val stepTimeAsymmetryDiff = diffOfTwo(stepTimeAsymPerStride)
+        val strideLengthNormDiff = diffOfTwo(strideLengthNormPerStride)
+        val strideAmpNormDiff = diffOfTwo(strideAmpNormPerStride)
+        val stepLengthAsymmetryDiff = diffOfTwo(stepLengthAsymPerStride)
+        val kneeLeftRomDiff = diffOfTwo(selectedStrides.map { it.kneeRomLeft })
+        val kneeRightRomDiff = diffOfTwo(selectedStrides.map { it.kneeRomRight })
+        val kneeLeftMaxDiff = diffOfTwo(selectedStrides.map { it.kneeMaxLeft })
+        val kneeRightMaxDiff = diffOfTwo(selectedStrides.map { it.kneeMaxRight })
+        val ldjKneeLeftDiff = diffOfTwo(ldjKneeLeftValues)
+        val ldjKneeRightDiff = diffOfTwo(ldjKneeRightValues)
+        val ldjHipDiff = diffOfTwo(ldjHipValues)
+        val strideLengthRelLNormDiff = diffOfTwo(strideLengthRelLNormPerStride)
+        val strideLengthRelRNormDiff = diffOfTwo(strideLengthRelRNormPerStride)
+        val strideLengthRelAsymDiff = diffOfTwo(strideLengthRelAsymPerStride)
+        val ankleApRangeRelNormDiff = diffOfTwo(ankleApRangeNormPerStride)
+        val midHipApDriftNormDiff = diffOfTwo(midHipDriftNormPerStride)
+        val tKneeLeftPeakPctDiff = diffOfTwo(tKneeLeftPeak)
+        val tKneeRightPeakPctDiff = diffOfTwo(tKneeRightPeak)
+        val tTrunkPeakAbsPctDiff = diffOfTwo(tTrunkPeakAbs)
+        val tToeClearanceLeftPctDiff = diffOfTwo(tToeClearanceLeft)
+        val tToeClearanceRightPctDiff = diffOfTwo(tToeClearanceRight)
+        val toeClearanceLeftMaxDiff = diffOfTwo(toeClearanceLeftMax)
+        val toeClearanceRightMaxDiff = diffOfTwo(toeClearanceRightMax)
+        val toeClearanceLeftRangeDiff = diffOfTwo(toeClearanceLeftRange)
+        val toeClearanceRightRangeDiff = diffOfTwo(toeClearanceRightRange)
+        val footPitchLeftMeanDiff = diffOfTwo(footPitchLeftMean)
+        val footPitchRightMeanDiff = diffOfTwo(footPitchRightMean)
+        val footPitchLeftRangeDiff = diffOfTwo(footPitchLeftRange)
+        val footPitchRightRangeDiff = diffOfTwo(footPitchRightRange)
+        
+        // Debug: raw values for V2 feature investigation (keypoints are normalized 0-1)
+        Log.d(TAG, "V2 feature debug")
+        Log.d(TAG, "  bodyWidth = $bodyWidth (mean(shoulder+hip)/2 across frames)")
+        Log.d(TAG, "  stride_length_relL raw = ${strideLengthRelL.averageOrZero()}, norm = $strideLengthRelLNorm")
+        Log.d(TAG, "  stride_length_relR raw = ${strideLengthRelR.averageOrZero()}, norm = $strideLengthRelRNorm")
+        Log.d(TAG, "  ankle_ap_range raw = ${ankleApRangePerStride.averageOrZero()}, norm = $ankleApRangeRelNorm")
+        Log.d(TAG, "  midHip_ap_drift raw = ${midHipDriftPerStride.averageOrZero()}, norm = $midHipApDriftNorm")
+        if (selectedStrides.isNotEmpty()) {
+            val s = selectedStrides.first()
+            val start = s.startFrame
+            val end = minOf(s.endFrame, signals.ankleLeftX.size - 1)
+            fun at(arr: FloatArray, i: Int) = if (i in arr.indices) arr[i].toString() else "OOB"
+            Log.d(TAG, "  Stride 0 sample: frames $start..$end")
+            Log.d(TAG, "    ankleLeftX[start]=${at(signals.ankleLeftX, start)}, [end]=${at(signals.ankleLeftX, end)}")
+            Log.d(TAG, "    ankleRightX[start]=${at(signals.ankleRightX, start)}, [end]=${at(signals.ankleRightX, end)}")
+            Log.d(TAG, "    midHipX[start]=${at(signals.midHipX, start)}, [end]=${at(signals.midHipX, end)}")
+        }
+        
         return Triple(
             GaitFeatures(
                 cadence_spm = cadenceSpm,
@@ -1019,6 +1287,59 @@ class FeatureExtractor(
                 ldj_hip = ldjHip,
                 trunk_lean_std_deg = trunkLeanStdDeg,
                 inter_ankle_cv = interAnkleCv,
+                stride_length_relL_norm = strideLengthRelLNorm,
+                stride_length_relR_norm = strideLengthRelRNorm,
+                stride_length_rel_asym = strideLengthRelAsym,
+                ankle_ap_range_rel_norm = ankleApRangeRelNorm,
+                midHip_ap_drift_norm = midHipApDriftNorm,
+                t_knee_left_peak_pct = tKneeLeftPeakPct,
+                t_knee_right_peak_pct = tKneeRightPeakPct,
+                t_trunk_peak_abs_pct = tTrunkPeakAbsPct,
+                t_toe_clearance_left_pct = tToeClearanceLeftPct,
+                t_toe_clearance_right_pct = tToeClearanceRightPct,
+                toe_clearance_left_max = toeClearanceLeftMaxVal,
+                toe_clearance_right_max = toeClearanceRightMaxVal,
+                toe_clearance_left_range = toeClearanceLeftRangeVal,
+                toe_clearance_right_range = toeClearanceRightRangeVal,
+                foot_pitch_left_mean = footPitchLeftMeanVal,
+                foot_pitch_right_mean = footPitchRightMeanVal,
+                foot_pitch_left_range = footPitchLeftRangeVal,
+                foot_pitch_right_range = footPitchRightRangeVal,
+                trunk_abs_mean_deg = trunkAbsMeanDeg,
+                trunk_abs_p95_deg = trunkAbsP95Deg,
+                trunk_ang_vel_mean_abs = trunkAngVelMeanAbs,
+                trunk_ang_vel_p95_abs = trunkAngVelP95Abs,
+                cadence_diff = cadenceDiff,
+                stride_time_diff = strideTimeDiff,
+                step_time_asymmetry_diff = stepTimeAsymmetryDiff,
+                stride_length_norm_diff = strideLengthNormDiff,
+                stride_amp_norm_diff = strideAmpNormDiff,
+                step_length_asymmetry_diff = stepLengthAsymmetryDiff,
+                knee_left_rom_diff = kneeLeftRomDiff,
+                knee_right_rom_diff = kneeRightRomDiff,
+                knee_left_max_diff = kneeLeftMaxDiff,
+                knee_right_max_diff = kneeRightMaxDiff,
+                ldj_knee_left_diff = ldjKneeLeftDiff,
+                ldj_knee_right_diff = ldjKneeRightDiff,
+                ldj_hip_diff = ldjHipDiff,
+                stride_length_relL_norm_diff = strideLengthRelLNormDiff,
+                stride_length_relR_norm_diff = strideLengthRelRNormDiff,
+                stride_length_rel_asym_diff = strideLengthRelAsymDiff,
+                ankle_ap_range_rel_norm_diff = ankleApRangeRelNormDiff,
+                midHip_ap_drift_norm_diff = midHipApDriftNormDiff,
+                t_knee_left_peak_pct_diff = tKneeLeftPeakPctDiff,
+                t_knee_right_peak_pct_diff = tKneeRightPeakPctDiff,
+                t_trunk_peak_abs_pct_diff = tTrunkPeakAbsPctDiff,
+                t_toe_clearance_left_pct_diff = tToeClearanceLeftPctDiff,
+                t_toe_clearance_right_pct_diff = tToeClearanceRightPctDiff,
+                toe_clearance_left_max_diff = toeClearanceLeftMaxDiff,
+                toe_clearance_right_max_diff = toeClearanceRightMaxDiff,
+                toe_clearance_left_range_diff = toeClearanceLeftRangeDiff,
+                toe_clearance_right_range_diff = toeClearanceRightRangeDiff,
+                foot_pitch_left_mean_diff = footPitchLeftMeanDiff,
+                foot_pitch_right_mean_diff = footPitchRightMeanDiff,
+                foot_pitch_left_range_diff = footPitchLeftRangeDiff,
+                foot_pitch_right_range_diff = footPitchRightRangeDiff,
                 valid_stride_count = selectedStrides.size
             ),
             selectionReason,
@@ -1069,7 +1390,7 @@ class FeatureExtractor(
         return ldj
     }
     
-    // --- Diagnostics ---
+    // Diagnostics
     
     private fun createDiagnostics(
         poseSeq: PoseSequence,

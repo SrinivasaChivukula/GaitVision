@@ -23,7 +23,7 @@ import kotlin.math.sqrt
 class GaitScorer(private val context: Context) {
     
     companion object {
-        private const val TAG = "GaitDebug"
+        private const val TAG = "GaitLogging"
         
         // Model files
         private const val AE_CONFIG = "AE-4D-normal.json"
@@ -308,12 +308,18 @@ class GaitScorer(private val context: Context) {
         val featureArray = features.toFeatureArray()
         
         // Log raw features for debugging
-        Log.d(TAG, "=== SCORING DEBUG ===")
+        Log.d(TAG, "Scoring debug")
         Log.d(TAG, "Raw features (${featureArray.size}):")
         GaitFeatures.FEATURE_COLUMNS.forEachIndexed { i, name ->
             val value = if (i < featureArray.size) featureArray[i] else Float.NaN
             Log.d(TAG, "  [$i] $name = $value")
         }
+        Log.d(TAG, "V2 features:")
+        Log.d(TAG, "  camera-robust: stride_length_relL=${features.stride_length_relL_norm} relR=${features.stride_length_relR_norm} ankle_ap_range=${features.ankle_ap_range_rel_norm} midHip_drift=${features.midHip_ap_drift_norm}")
+        Log.d(TAG, "  timing: t_knee_L=${features.t_knee_left_peak_pct} t_knee_R=${features.t_knee_right_peak_pct} t_trunk=${features.t_trunk_peak_abs_pct} t_toe_L=${features.t_toe_clearance_left_pct} t_toe_R=${features.t_toe_clearance_right_pct}")
+        Log.d(TAG, "  foot: toe_max_L=${features.toe_clearance_left_max} toe_max_R=${features.toe_clearance_right_max} toe_range_L=${features.toe_clearance_left_range} toe_range_R=${features.toe_clearance_right_range} pitch_mean_L=${features.foot_pitch_left_mean} pitch_mean_R=${features.foot_pitch_right_mean} pitch_range_L=${features.foot_pitch_left_range} pitch_range_R=${features.foot_pitch_right_range}")
+        Log.d(TAG, "  trunk: abs_mean=${features.trunk_abs_mean_deg} abs_p95=${features.trunk_abs_p95_deg} vel_mean=${features.trunk_ang_vel_mean_abs} vel_p95=${features.trunk_ang_vel_p95_abs}")
+        Log.d(TAG, "V2 diff (cycle-to-cycle): cadence=${features.cadence_diff} stride_time=${features.stride_time_diff} stride_len=${features.stride_length_norm_diff} stride_amp=${features.stride_amp_norm_diff} knee_rom_L=${features.knee_left_rom_diff} knee_rom_R=${features.knee_right_rom_diff} ldj_knee_L=${features.ldj_knee_left_diff} ldj_knee_R=${features.ldj_knee_right_diff} ldj_hip=${features.ldj_hip_diff} stride_relL=${features.stride_length_relL_norm_diff} stride_relR=${features.stride_length_relR_norm_diff} t_knee_L=${features.t_knee_left_peak_pct_diff} t_knee_R=${features.t_knee_right_peak_pct_diff} toe_max_L=${features.toe_clearance_left_max_diff} toe_max_R=${features.toe_clearance_right_max_diff}")
         
         // Check for NaN in input
         val nanCount = featureArray.count { it.isNaN() }
@@ -326,7 +332,7 @@ class GaitScorer(private val context: Context) {
         val ridgeScore = if (ridgeAvailable) computeRidgeScore(featureArray) else Float.NaN
         val pcaScore = if (pcaAvailable) computePCAScore(featureArray) else Float.NaN
         
-        Log.d(TAG, "=== FINAL SCORES ===")
+        Log.d(TAG, "Final scores")
         Log.d(TAG, "  AE: $aeScore (available=$aeAvailable)")
         Log.d(TAG, "  Ridge: $ridgeScore (available=$ridgeAvailable)")
         Log.d(TAG, "  PCA: $pcaScore (available=$pcaAvailable)")
@@ -343,7 +349,7 @@ class GaitScorer(private val context: Context) {
      * 0 = severe impairment, 100 = healthy
      */
     private fun computeAEScore(features: FloatArray): Float {
-        Log.d(TAG, "--- AE SCORING ---")
+        Log.d(TAG, "AE scoring")
         
         val model = aeInterpreter ?: return Float.NaN.also { Log.e(TAG, "AE FAIL: interpreter is null") }
         val mean = aeScalerMean ?: return Float.NaN.also { Log.e(TAG, "AE FAIL: scaler mean is null") }
@@ -410,7 +416,7 @@ class GaitScorer(private val context: Context) {
      * We map to 0-100 using the score_range from training.
      */
     private fun computeRidgeScore(features: FloatArray): Float {
-        Log.d(TAG, "--- RIDGE SCORING ---")
+        Log.d(TAG, "Ridge scoring")
         
         val coef = ridgeCoef ?: return Float.NaN
         val mean = ridgeScalerMean ?: return Float.NaN
@@ -446,7 +452,7 @@ class GaitScorer(private val context: Context) {
      * Compute PCA score (reconstruction error → 0-100).
      */
     private fun computePCAScore(features: FloatArray): Float {
-        Log.d(TAG, "--- PCA SCORING ---")
+        Log.d(TAG, "PCA scoring")
         
         val components = pcaComponents ?: return Float.NaN.also { Log.e(TAG, "PCA FAIL: components is null") }
         val mean = pcaScalerMean ?: return Float.NaN.also { Log.e(TAG, "PCA FAIL: scaler mean is null") }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,8 +19,11 @@ import GaitVision.com.data.AnalysisResult
 import GaitVision.com.data.AppDatabase
 import GaitVision.com.participantId
 import GaitVision.com.extractedFeatures
+import GaitVision.com.extractedSignals
+import GaitVision.com.extractedStrides
 import GaitVision.com.extractionDiagnostics
 import GaitVision.com.scoringResult
+import GaitVision.com.selectedStrideIndices
 import GaitVision.com.gait.*
 import GaitVision.com.galleryUri
 
@@ -27,6 +31,7 @@ class ResultsActivity : BaseActivity() {
 
     companion object {
         const val EXTRA_RESULT_ID = "result_id"
+        private const val TAG = "GaitUI"
     }
 
     private lateinit var tvGaitScore: TextView
@@ -102,12 +107,14 @@ class ResultsActivity : BaseActivity() {
      * should replace this if we ever need concurrent or comparative analysis views.
      */
     private fun loadFromDatabase(id: Long) {
+        Log.d(TAG, "Loading result $id from DB")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 AppDatabase.getDatabase(this@ResultsActivity).analysisResultDao().getResultById(id)
             }
 
             if (result == null) {
+                Log.e(TAG, "Result $id not found in DB")
                 Toast.makeText(this@ResultsActivity, "Analysis not found", Toast.LENGTH_SHORT).show()
                 finish()
                 return@launch
@@ -131,8 +138,63 @@ class ResultsActivity : BaseActivity() {
                 ldj_hip = result.ldjHip ?: Float.NaN,
                 trunk_lean_std_deg = result.trunkLeanStdDeg ?: Float.NaN,
                 inter_ankle_cv = result.interAnkleCv ?: Float.NaN,
+                stride_length_relL_norm = result.strideLengthRelLNorm ?: Float.NaN,
+                stride_length_relR_norm = result.strideLengthRelRNorm ?: Float.NaN,
+                stride_length_rel_asym = result.strideLengthRelAsym ?: Float.NaN,
+                ankle_ap_range_rel_norm = result.ankleApRangeRelNorm ?: Float.NaN,
+                midHip_ap_drift_norm = result.midHipApDriftNorm ?: Float.NaN,
+                t_knee_left_peak_pct = result.tKneeLeftPeakPct ?: Float.NaN,
+                t_knee_right_peak_pct = result.tKneeRightPeakPct ?: Float.NaN,
+                t_trunk_peak_abs_pct = result.tTrunkPeakAbsPct ?: Float.NaN,
+                t_toe_clearance_left_pct = result.tToeClearanceLeftPct ?: Float.NaN,
+                t_toe_clearance_right_pct = result.tToeClearanceRightPct ?: Float.NaN,
+                toe_clearance_left_max = result.toeClearanceLeftMax ?: Float.NaN,
+                toe_clearance_right_max = result.toeClearanceRightMax ?: Float.NaN,
+                toe_clearance_left_range = result.toeClearanceLeftRange ?: Float.NaN,
+                toe_clearance_right_range = result.toeClearanceRightRange ?: Float.NaN,
+                foot_pitch_left_mean = result.footPitchLeftMean ?: Float.NaN,
+                foot_pitch_right_mean = result.footPitchRightMean ?: Float.NaN,
+                foot_pitch_left_range = result.footPitchLeftRange ?: Float.NaN,
+                foot_pitch_right_range = result.footPitchRightRange ?: Float.NaN,
+                trunk_abs_mean_deg = result.trunkAbsMeanDeg ?: Float.NaN,
+                trunk_abs_p95_deg = result.trunkAbsP95Deg ?: Float.NaN,
+                trunk_ang_vel_mean_abs = result.trunkAngVelMeanAbs ?: Float.NaN,
+                trunk_ang_vel_p95_abs = result.trunkAngVelP95Abs ?: Float.NaN,
+                cadence_diff = result.cadenceDiff ?: Float.NaN,
+                stride_time_diff = result.strideTimeDiff ?: Float.NaN,
+                step_time_asymmetry_diff = result.stepTimeAsymmetryDiff ?: Float.NaN,
+                stride_length_norm_diff = result.strideLengthNormDiff ?: Float.NaN,
+                stride_amp_norm_diff = result.strideAmpNormDiff ?: Float.NaN,
+                step_length_asymmetry_diff = result.stepLengthAsymmetryDiff ?: Float.NaN,
+                knee_left_rom_diff = result.kneeLeftRomDiff ?: Float.NaN,
+                knee_right_rom_diff = result.kneeRightRomDiff ?: Float.NaN,
+                knee_left_max_diff = result.kneeLeftMaxDiff ?: Float.NaN,
+                knee_right_max_diff = result.kneeRightMaxDiff ?: Float.NaN,
+                ldj_knee_left_diff = result.ldjKneeLeftDiff ?: Float.NaN,
+                ldj_knee_right_diff = result.ldjKneeRightDiff ?: Float.NaN,
+                ldj_hip_diff = result.ldjHipDiff ?: Float.NaN,
+                stride_length_relL_norm_diff = result.strideLengthRelLNormDiff ?: Float.NaN,
+                stride_length_relR_norm_diff = result.strideLengthRelRNormDiff ?: Float.NaN,
+                stride_length_rel_asym_diff = result.strideLengthRelAsymDiff ?: Float.NaN,
+                ankle_ap_range_rel_norm_diff = result.ankleApRangeRelNormDiff ?: Float.NaN,
+                midHip_ap_drift_norm_diff = result.midHipApDriftNormDiff ?: Float.NaN,
+                t_knee_left_peak_pct_diff = result.tKneeLeftPeakPctDiff ?: Float.NaN,
+                t_knee_right_peak_pct_diff = result.tKneeRightPeakPctDiff ?: Float.NaN,
+                t_trunk_peak_abs_pct_diff = result.tTrunkPeakAbsPctDiff ?: Float.NaN,
+                t_toe_clearance_left_pct_diff = result.tToeClearanceLeftPctDiff ?: Float.NaN,
+                t_toe_clearance_right_pct_diff = result.tToeClearanceRightPctDiff ?: Float.NaN,
+                toe_clearance_left_max_diff = result.toeClearanceLeftMaxDiff ?: Float.NaN,
+                toe_clearance_right_max_diff = result.toeClearanceRightMaxDiff ?: Float.NaN,
+                toe_clearance_left_range_diff = result.toeClearanceLeftRangeDiff ?: Float.NaN,
+                toe_clearance_right_range_diff = result.toeClearanceRightRangeDiff ?: Float.NaN,
+                foot_pitch_left_mean_diff = result.footPitchLeftMeanDiff ?: Float.NaN,
+                foot_pitch_right_mean_diff = result.footPitchRightMeanDiff ?: Float.NaN,
+                foot_pitch_left_range_diff = result.footPitchLeftRangeDiff ?: Float.NaN,
+                foot_pitch_right_range_diff = result.footPitchRightRangeDiff ?: Float.NaN,
                 valid_stride_count = result.validStrideCount
             )
+
+            Log.d(TAG, "Loaded from DB: features=${extractedFeatures != null}, V2 sample: stride_relL=${extractedFeatures?.stride_length_relL_norm}, toe_max_L=${extractedFeatures?.toe_clearance_left_max}")
 
             scoringResult = ScoringResult(
                 aeScore = result.aeScore ?: Float.NaN,
@@ -235,6 +297,7 @@ class ResultsActivity : BaseActivity() {
         fun fmt(v: Float) = if (v.isNaN()) "--" else String.format("%.2f", v)
 
         val msg = buildString {
+            appendLine("V1 Features")
             appendLine("Cadence: ${fmt(f.cadence_spm)} spm")
             appendLine("Stride time: ${fmt(f.stride_time_s)} s")
             appendLine("Stride time CV: ${fmt(f.stride_time_cv)}")
@@ -247,12 +310,55 @@ class ResultsActivity : BaseActivity() {
             appendLine("LDJ knee L/R: ${fmt(f.ldj_knee_left)} / ${fmt(f.ldj_knee_right)}")
             appendLine("LDJ hip: ${fmt(f.ldj_hip)}")
             appendLine("Trunk lean std: ${fmt(f.trunk_lean_std_deg)}")
-            append("Inter-ankle CV: ${fmt(f.inter_ankle_cv)}")
+            appendLine("Inter-ankle CV: ${fmt(f.inter_ankle_cv)}")
+            appendLine()
+            appendLine("V2: Camera-robust")
+            appendLine("Stride length rel L/R norm: ${fmt(f.stride_length_relL_norm)} / ${fmt(f.stride_length_relR_norm)}")
+            appendLine("Stride length rel asym: ${fmt(f.stride_length_rel_asym)}")
+            appendLine("Ankle AP range rel norm: ${fmt(f.ankle_ap_range_rel_norm)}")
+            appendLine("MidHip AP drift norm: ${fmt(f.midHip_ap_drift_norm)}")
+            appendLine()
+            appendLine("V2: Timing-of-extrema")
+            appendLine("t knee peak L/R pct: ${fmt(f.t_knee_left_peak_pct)} / ${fmt(f.t_knee_right_peak_pct)}")
+            appendLine("t trunk peak abs pct: ${fmt(f.t_trunk_peak_abs_pct)}")
+            appendLine("t toe clearance L/R pct: ${fmt(f.t_toe_clearance_left_pct)} / ${fmt(f.t_toe_clearance_right_pct)}")
+            appendLine()
+            appendLine("V2: Foot clearance + pitch")
+            appendLine("Toe clearance max L/R: ${fmt(f.toe_clearance_left_max)} / ${fmt(f.toe_clearance_right_max)}")
+            appendLine("Toe clearance range L/R: ${fmt(f.toe_clearance_left_range)} / ${fmt(f.toe_clearance_right_range)}")
+            appendLine("Foot pitch mean L/R: ${fmt(f.foot_pitch_left_mean)} / ${fmt(f.foot_pitch_right_mean)}")
+            appendLine("Foot pitch range L/R: ${fmt(f.foot_pitch_left_range)} / ${fmt(f.foot_pitch_right_range)}")
+            appendLine()
+            appendLine("V2: Trunk enrichments")
+            appendLine("Trunk abs mean/p95 deg: ${fmt(f.trunk_abs_mean_deg)} / ${fmt(f.trunk_abs_p95_deg)}")
+            appendLine("Trunk ang vel mean/p95 abs: ${fmt(f.trunk_ang_vel_mean_abs)} / ${fmt(f.trunk_ang_vel_p95_abs)}")
+            appendLine()
+            appendLine("V2: Diff (cycle A − B)")
+            appendLine("Cadence diff: ${fmt(f.cadence_diff)} | Stride time diff: ${fmt(f.stride_time_diff)}")
+            appendLine("Step time asym diff: ${fmt(f.step_time_asymmetry_diff)}")
+            appendLine("Stride length/amp norm diff: ${fmt(f.stride_length_norm_diff)} / ${fmt(f.stride_amp_norm_diff)}")
+            appendLine("Step length asym diff: ${fmt(f.step_length_asymmetry_diff)}")
+            appendLine("Knee ROM diff L/R: ${fmt(f.knee_left_rom_diff)} / ${fmt(f.knee_right_rom_diff)}")
+            appendLine("Knee max diff L/R: ${fmt(f.knee_left_max_diff)} / ${fmt(f.knee_right_max_diff)}")
+            appendLine("LDJ diff knee L/R, hip: ${fmt(f.ldj_knee_left_diff)} / ${fmt(f.ldj_knee_right_diff)} / ${fmt(f.ldj_hip_diff)}")
+            appendLine("Stride rel L/R/asym diff: ${fmt(f.stride_length_relL_norm_diff)} / ${fmt(f.stride_length_relR_norm_diff)} / ${fmt(f.stride_length_rel_asym_diff)}")
+            appendLine("Ankle AP / MidHip drift diff: ${fmt(f.ankle_ap_range_rel_norm_diff)} / ${fmt(f.midHip_ap_drift_norm_diff)}")
+            appendLine("t knee peak diff L/R: ${fmt(f.t_knee_left_peak_pct_diff)} / ${fmt(f.t_knee_right_peak_pct_diff)}")
+            appendLine("t trunk/toe clearance diff: ${fmt(f.t_trunk_peak_abs_pct_diff)} / ${fmt(f.t_toe_clearance_left_pct_diff)} / ${fmt(f.t_toe_clearance_right_pct_diff)}")
+            appendLine("Toe clearance max/range diff: ${fmt(f.toe_clearance_left_max_diff)} / ${fmt(f.toe_clearance_right_max_diff)} / ${fmt(f.toe_clearance_left_range_diff)} / ${fmt(f.toe_clearance_right_range_diff)}")
+            append("Foot pitch mean/range diff: ${fmt(f.foot_pitch_left_mean_diff)} / ${fmt(f.foot_pitch_right_mean_diff)} / ${fmt(f.foot_pitch_left_range_diff)} / ${fmt(f.foot_pitch_right_range_diff)}")
         }
 
+        val scrollView = ScrollView(this).apply {
+            addView(TextView(this@ResultsActivity).apply {
+                text = msg
+                setPadding(48, 24, 48, 24)
+                textSize = 12f
+            })
+        }
         AlertDialog.Builder(this)
             .setTitle("Gait Features (${f.valid_stride_count} strides)")
-            .setMessage(msg)
+            .setView(scrollView)
             .setPositiveButton("OK", null)
             .show()
     }
@@ -289,7 +395,10 @@ class ResultsActivity : BaseActivity() {
                     diagnostics = diagnostics,
                     score = scoringResult,
                     participantId = filePrefix,
-                    videoName = videoName
+                    videoName = videoName,
+                    strides = extractedStrides,
+                    selectedStrideIndices = selectedStrideIndices,
+                    signals = extractedSignals
                 )
                 if (success) {
                     Toast.makeText(this, "CSV exported successfully", Toast.LENGTH_SHORT).show()
@@ -298,7 +407,7 @@ class ResultsActivity : BaseActivity() {
                 }
             } ?: Toast.makeText(this, "Could not open file for writing", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Log.e("ResultsActivity", "Error exporting: ${e.message}", e)
+            Log.e(TAG, "Error exporting: ${e.message}", e)
             Toast.makeText(this, "Error exporting: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }

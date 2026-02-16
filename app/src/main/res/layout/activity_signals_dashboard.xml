@@ -163,6 +163,27 @@
                 android:layout_height="match_parent"
                 android:visibility="invisible" />
 
+            <!-- Heel Y Positions -->
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/chartHeelY"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="invisible" />
+
+            <!-- Toe Y Positions -->
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/chartToeY"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="invisible" />
+
+            <!-- MidHip X Position -->
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/chartMidHipX"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="invisible" />
+
             <!-- Trunk Angle -->
             <com.github.mikephil.charting.charts.LineChart
                 android:id="@+id/chartTrunk"

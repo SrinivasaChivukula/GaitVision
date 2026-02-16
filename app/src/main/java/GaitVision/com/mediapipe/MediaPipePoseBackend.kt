@@ -242,7 +242,7 @@ class MediaPipePoseBackend(
     }
     
     companion object {
-        private const val TAG = "MediaPipePoseBackend"
+        private const val TAG = "GaitMedia"
         
         // MediaPipe keypoint indices (same as PC - 33 landmarks)
         const val NOSE = 0

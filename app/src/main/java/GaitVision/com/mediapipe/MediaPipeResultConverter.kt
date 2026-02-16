@@ -8,7 +8,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
  */
 object MediaPipeResultConverter {
     
-    private const val TAG = "MediaPipeResultConverter"
+    private const val TAG = "GaitMedia"
     
     /**
      * Convert MediaPipe result to PoseFrame.

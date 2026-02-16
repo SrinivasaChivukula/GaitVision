@@ -50,6 +50,11 @@ import java.io.File
 
 class AnalysisActivity : BaseActivity() {
 
+    companion object {
+        private const val TAG = "GaitUI"
+        const val EXTRA_SHOULD_SAVE = "should_save"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
     private var isProcessing = false
@@ -65,10 +70,6 @@ class AnalysisActivity : BaseActivity() {
     private lateinit var tvKneeAngles: TextView
     private lateinit var tvHipAngles: TextView
     private lateinit var tvTorsoAngle: TextView
-
-    companion object {
-        const val EXTRA_SHOULD_SAVE = "should_save"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,12 +170,12 @@ class AnalysisActivity : BaseActivity() {
                         )
                     }
                     currentPatientId = patient.participantId
-                    Log.d("AnalysisActivity", "Patient ID: ${patient.participantId}")
+                    Log.d(TAG, "Patient ID: ${patient.participantId}")
                 } else {
                     // For quick analysis, we need a dummy patient ID for processing if it uses it internally,
                     // but looking at saveToDatabase, currentPatientId is only used for saving.
                     // ProcVidEmpty doesn't seem to use currentPatientId.
-                    Log.d("AnalysisActivity", "Skipping patient creation/lookup (One-off analysis)")
+                    Log.d(TAG, "Skipping patient creation/lookup (One-off analysis)")
                 }
 
                 // Process the video (use app cache dir to avoid permission issues)
@@ -197,7 +198,7 @@ class AnalysisActivity : BaseActivity() {
                 }
 
             } catch (e: Exception) {
-                Log.e("AnalysisActivity", "Error during analysis: ${e.message}", e)
+                Log.e(TAG, "Error during analysis: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@AnalysisActivity,
@@ -277,6 +278,69 @@ class AnalysisActivity : BaseActivity() {
                     trunkLeanStdDeg = features?.trunk_lean_std_deg,
                     interAnkleCv = features?.inter_ankle_cv,
 
+                    // V2: Camera-robust (5)
+                    strideLengthRelLNorm = features?.stride_length_relL_norm,
+                    strideLengthRelRNorm = features?.stride_length_relR_norm,
+                    strideLengthRelAsym = features?.stride_length_rel_asym,
+                    ankleApRangeRelNorm = features?.ankle_ap_range_rel_norm,
+                    midHipApDriftNorm = features?.midHip_ap_drift_norm,
+
+                    // V2: Timing-of-extrema (5)
+                    tKneeLeftPeakPct = features?.t_knee_left_peak_pct,
+                    tKneeRightPeakPct = features?.t_knee_right_peak_pct,
+                    tTrunkPeakAbsPct = features?.t_trunk_peak_abs_pct,
+                    tToeClearanceLeftPct = features?.t_toe_clearance_left_pct,
+                    tToeClearanceRightPct = features?.t_toe_clearance_right_pct,
+
+                    // V2: Foot clearance + pitch (8)
+                    toeClearanceLeftMax = features?.toe_clearance_left_max,
+                    toeClearanceRightMax = features?.toe_clearance_right_max,
+                    toeClearanceLeftRange = features?.toe_clearance_left_range,
+                    toeClearanceRightRange = features?.toe_clearance_right_range,
+                    footPitchLeftMean = features?.foot_pitch_left_mean,
+                    footPitchRightMean = features?.foot_pitch_right_mean,
+                    footPitchLeftRange = features?.foot_pitch_left_range,
+                    footPitchRightRange = features?.foot_pitch_right_range,
+
+                    // V2: Trunk enrichments (4)
+                    trunkAbsMeanDeg = features?.trunk_abs_mean_deg,
+                    trunkAbsP95Deg = features?.trunk_abs_p95_deg,
+                    trunkAngVelMeanAbs = features?.trunk_ang_vel_mean_abs,
+                    trunkAngVelP95Abs = features?.trunk_ang_vel_p95_abs,
+
+                    // V2: Diff features (31)
+                    cadenceDiff = features?.cadence_diff,
+                    strideTimeDiff = features?.stride_time_diff,
+                    stepTimeAsymmetryDiff = features?.step_time_asymmetry_diff,
+                    strideLengthNormDiff = features?.stride_length_norm_diff,
+                    strideAmpNormDiff = features?.stride_amp_norm_diff,
+                    stepLengthAsymmetryDiff = features?.step_length_asymmetry_diff,
+                    kneeLeftRomDiff = features?.knee_left_rom_diff,
+                    kneeRightRomDiff = features?.knee_right_rom_diff,
+                    kneeLeftMaxDiff = features?.knee_left_max_diff,
+                    kneeRightMaxDiff = features?.knee_right_max_diff,
+                    ldjKneeLeftDiff = features?.ldj_knee_left_diff,
+                    ldjKneeRightDiff = features?.ldj_knee_right_diff,
+                    ldjHipDiff = features?.ldj_hip_diff,
+                    strideLengthRelLNormDiff = features?.stride_length_relL_norm_diff,
+                    strideLengthRelRNormDiff = features?.stride_length_relR_norm_diff,
+                    strideLengthRelAsymDiff = features?.stride_length_rel_asym_diff,
+                    ankleApRangeRelNormDiff = features?.ankle_ap_range_rel_norm_diff,
+                    midHipApDriftNormDiff = features?.midHip_ap_drift_norm_diff,
+                    tKneeLeftPeakPctDiff = features?.t_knee_left_peak_pct_diff,
+                    tKneeRightPeakPctDiff = features?.t_knee_right_peak_pct_diff,
+                    tTrunkPeakAbsPctDiff = features?.t_trunk_peak_abs_pct_diff,
+                    tToeClearanceLeftPctDiff = features?.t_toe_clearance_left_pct_diff,
+                    tToeClearanceRightPctDiff = features?.t_toe_clearance_right_pct_diff,
+                    toeClearanceLeftMaxDiff = features?.toe_clearance_left_max_diff,
+                    toeClearanceRightMaxDiff = features?.toe_clearance_right_max_diff,
+                    toeClearanceLeftRangeDiff = features?.toe_clearance_left_range_diff,
+                    toeClearanceRightRangeDiff = features?.toe_clearance_right_range_diff,
+                    footPitchLeftMeanDiff = features?.foot_pitch_left_mean_diff,
+                    footPitchRightMeanDiff = features?.foot_pitch_right_mean_diff,
+                    footPitchLeftRangeDiff = features?.foot_pitch_left_range_diff,
+                    footPitchRightRangeDiff = features?.foot_pitch_right_range_diff,
+
                     stridesJson = extractedStrides?.let { strides ->
                         JSONArray().apply {
                             strides.forEach { s ->
@@ -299,6 +363,7 @@ class AnalysisActivity : BaseActivity() {
                         JSONArray(it).toString()
                     }
                 )
+                Log.d(TAG, "Saving V2 sample: stride_relL=${features?.stride_length_relL_norm}, toe_max_L=${features?.toe_clearance_left_max}, selectedStrides=$selectedStrideIndices")
                 val resultId = resultRepo.insertResult(result)
                 currentResultId = resultId
 
@@ -320,6 +385,11 @@ class AnalysisActivity : BaseActivity() {
                             ankleRightY = signals.ankleRightY.getOrNull(frame)?.takeIf { !it.isNaN() },
                             hipLeftY = signals.hipLeftY.getOrNull(frame)?.takeIf { !it.isNaN() },
                             hipRightY = signals.hipRightY.getOrNull(frame)?.takeIf { !it.isNaN() },
+                            heelLeftY = signals.heelLeftY.getOrNull(frame)?.takeIf { !it.isNaN() },
+                            heelRightY = signals.heelRightY.getOrNull(frame)?.takeIf { !it.isNaN() },
+                            toeLeftY = signals.toeLeftY.getOrNull(frame)?.takeIf { !it.isNaN() },
+                            toeRightY = signals.toeRightY.getOrNull(frame)?.takeIf { !it.isNaN() },
+                            midHipX = signals.midHipX.getOrNull(frame)?.takeIf { !it.isNaN() },
                             ankleLeftVy = signals.ankleLeftVy.getOrNull(frame)?.takeIf { !it.isNaN() },
                             ankleRightVy = signals.ankleRightVy.getOrNull(frame)?.takeIf { !it.isNaN() },
                             isValid = signals.isValid.getOrNull(frame) ?: true,
@@ -331,13 +401,14 @@ class AnalysisActivity : BaseActivity() {
                         signalRepo.insertSignalDataList(signalDataList)
                     }
 
-                    Log.d("AnalysisActivity", "Saved result ID: $resultId with ${signalDataList.size} signal records")
+                    val first = signalDataList.firstOrNull()
+                    Log.d(TAG, "Saved result ID: $resultId with ${signalDataList.size} signal records, heel/toe/midHip present=${first?.heelLeftY != null}")
                 } else {
-                    Log.d("AnalysisActivity", "Saved result ID: $resultId (no signals)")
+                    Log.d(TAG, "Saved result ID: $resultId (no signals)")
                 }
             }
         } catch (e: Exception) {
-            Log.e("AnalysisActivity", "Error saving to database: ${e.message}", e)
+            Log.e(TAG, "Error saving to database: ${e.message}", e)
             withContext(Dispatchers.Main) {
                 Toast.makeText(this@AnalysisActivity, "Warning: failed to save to database", Toast.LENGTH_LONG).show()
             }
@@ -359,6 +430,12 @@ class AnalysisActivity : BaseActivity() {
             val mediaController = MediaController(this)
             mediaController.setAnchorView(videoView)
             videoView.setMediaController(mediaController)
+
+            // Suppress "can't play this video" dialog when playback ends (VideoView/MediaPlayer quirk)
+            videoView.setOnErrorListener { _, what, extra ->
+                Log.d(TAG, "VideoView error: what=$what extra=$extra (suppressed)")
+                true  // Consume error to prevent system dialog
+            }
 
             videoView.setOnPreparedListener {
                 videoView.start()

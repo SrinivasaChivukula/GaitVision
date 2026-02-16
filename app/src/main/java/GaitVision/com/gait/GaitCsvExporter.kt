@@ -13,7 +13,7 @@ import java.util.*
  */
 object GaitCsvExporter {
     
-    private const val TAG = "GaitCsvExporter"
+    private const val TAG = "GaitLogging"
 
     /** Sanitize a value for safe CSV output (prevents formula injection in Excel/Sheets). */
     private fun sanitize(value: String): String {
@@ -34,7 +34,12 @@ object GaitCsvExporter {
 
     /**
      * Write gait features and diagnostics as CSV to the given OutputStream.
+     * Optionally includes stride boundaries, selected stride indices, and per-frame signals.
      * Returns true on success.
+     *
+     * @param strides All detected strides (for boundary export)
+     * @param selectedStrideIndices Indices of the 2 strides used for feature computation
+     * @param signals Per-frame signals (when provided, appends a GAIT_SIGNALS section)
      */
     fun writeToStream(
         outputStream: OutputStream,
@@ -42,13 +47,17 @@ object GaitCsvExporter {
         diagnostics: GaitDiagnostics,
         score: ScoringResult?,
         participantId: String,
-        videoName: String
+        videoName: String,
+        strides: List<Stride>? = null,
+        selectedStrideIndices: List<Int>? = null,
+        signals: Signals? = null
     ): Boolean {
         return try {
+            Log.d(TAG, "Exporting: features=${features != null}, strides=${strides?.size}, signals=${signals != null}, selectedIndices=$selectedStrideIndices")
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
             OutputStreamWriter(outputStream).use { writer ->
-                // Header row
+                // Section 1: GAIT_RESULTS
                 val headers = mutableListOf(
                     "participant_id",
                     "video_name",
@@ -64,23 +73,30 @@ object GaitCsvExporter {
                     "num_steps_detected",
                     "num_strides_valid"
                 )
-                
-                // Add feature columns
-                headers.addAll(GaitFeatures.FEATURE_COLUMNS)
-                
+
+                // Stride selection info
+                headers.add("selected_stride_indices")
+                headers.add("stride_0_start_frame")
+                headers.add("stride_0_end_frame")
+                headers.add("stride_1_start_frame")
+                headers.add("stride_1_end_frame")
+
+                // Add feature columns (V1 + V2)
+                headers.addAll(GaitFeatures.CSV_FEATURE_COLUMNS)
+
                 // Add score columns (3 models)
                 headers.addAll(listOf(
                     "ae_score",
                     "ridge_score",
                     "pca_score"
                 ))
-                
+
                 writer.write(headers.joinToString(","))
                 writer.write("\n")
-                
+
                 // Data row
                 val values = mutableListOf<String>()
-                
+
                 // Metadata (sanitize user-controlled strings to prevent CSV injection)
                 values.add(sanitize(participantId))
                 values.add(sanitize(videoName))
@@ -95,17 +111,28 @@ object GaitCsvExporter {
                 values.add(diagnostics.validFrameRate.toString())
                 values.add(diagnostics.numStepsDetected.toString())
                 values.add(diagnostics.numStridesValid.toString())
-                
+
+                // Stride selection
+                values.add(selectedStrideIndices?.joinToString(";") ?: "")
+                val sel0 = selectedStrideIndices?.getOrNull(0)
+                val sel1 = selectedStrideIndices?.getOrNull(1)
+                val stride0 = strides?.getOrNull(sel0 ?: -1)
+                val stride1 = strides?.getOrNull(sel1 ?: -1)
+                values.add(stride0?.startFrame?.toString() ?: "")
+                values.add(stride0?.endFrame?.toString() ?: "")
+                values.add(stride1?.startFrame?.toString() ?: "")
+                values.add(stride1?.endFrame?.toString() ?: "")
+
                 // Features (or NaN if not available)
                 if (features != null) {
-                    val featureArray = features.toFeatureArray()
+                    val featureArray = features.toCsvFeatureArray()
                     for (f in featureArray) {
                         values.add(if (f.isNaN()) "NaN" else f.toString())
                     }
                 } else {
-                    repeat(16) { values.add("NaN") }
+                    repeat(GaitFeatures.CSV_FEATURE_COLUMNS.size) { values.add("NaN") }
                 }
-                
+
                 // Scores (3 models)
                 if (score != null) {
                     values.add(if (score.aeScore.isNaN()) "NaN" else score.aeScore.toString())
@@ -114,12 +141,54 @@ object GaitCsvExporter {
                 } else {
                     repeat(3) { values.add("NaN") }
                 }
-                
+
                 writer.write(values.joinToString(","))
                 writer.write("\n")
+
+                // Section 2: GAIT_SIGNALS
+                if (signals != null) {
+                    writer.write("\n")
+                    writer.write("# GAIT_SIGNALS\n")
+                    val sigHeaders = listOf(
+                        "frame", "timestamp", "is_valid",
+                        "inter_ankle_dist", "knee_left", "knee_right", "trunk",
+                        "ankle_left_y", "ankle_right_y", "hip_left_y", "hip_right_y",
+                        "heel_left_y", "heel_right_y", "toe_left_y", "toe_right_y", "mid_hip_x",
+                        "ankle_left_vy", "ankle_right_vy"
+                    )
+                    writer.write(sigHeaders.joinToString(","))
+                    writer.write("\n")
+
+                    fun fmt(v: Float) = if (v.isNaN()) "NaN" else v.toString()
+                    val n = signals.timestamps.size
+                    for (i in 0 until n) {
+                        val row = listOf(
+                            i.toString(),
+                            fmt(signals.timestamps.getOrNull(i) ?: Float.NaN),
+                            (signals.isValid.getOrNull(i) ?: true).toString(),
+                            fmt(signals.interAnkleDist.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.kneeAngleLeft.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.kneeAngleRight.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.trunkAngle.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.ankleLeftY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.ankleRightY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.hipLeftY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.hipRightY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.heelLeftY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.heelRightY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.toeLeftY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.toeRightY.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.midHipX.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.ankleLeftVy.getOrNull(i) ?: Float.NaN),
+                            fmt(signals.ankleRightVy.getOrNull(i) ?: Float.NaN)
+                        )
+                        writer.write(row.joinToString(","))
+                        writer.write("\n")
+                    }
+                }
             }
-            
-            Log.d(TAG, "CSV written successfully")
+
+            Log.d(TAG, "CSV written: features=${features != null}, signals=${signals?.timestamps?.size ?: 0} rows, strides=${strides?.size ?: 0}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error writing CSV", e)
@@ -137,7 +206,7 @@ object GaitCsvExporter {
     ): String {
         val sb = StringBuilder()
         
-        sb.appendLine("=== Gait Analysis Summary ===")
+        sb.appendLine("Gait Analysis Summary")
         sb.appendLine()
         
         // Quality status
