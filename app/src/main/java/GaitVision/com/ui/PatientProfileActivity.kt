@@ -20,9 +20,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import GaitVision.com.R
 import GaitVision.com.data.*
-import GaitVision.com.participantId
-import GaitVision.com.participantHeight
-import GaitVision.com.currentPatientId
+import GaitVision.com.AnalysisSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -174,9 +172,9 @@ class PatientProfileActivity : BaseActivity() {
 
     private fun startNewAnalysis() {
         currentPatient?.let { patient ->
-            participantId = patient.participantId ?: 0
-            participantHeight = patient.height
-            currentPatientId = patient.participantId
+            AnalysisSession.participantId = patient.participantId ?: 0
+            AnalysisSession.participantHeight = patient.height
+            AnalysisSession.currentPatientId = patient.participantId
 
             val intent = Intent(this, VideoPickerActivity::class.java)
             intent.putExtra("patientId", patient.participantId)

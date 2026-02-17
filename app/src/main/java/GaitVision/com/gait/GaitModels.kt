@@ -92,7 +92,7 @@ data class GaitFeatures(
     val trunk_ang_vel_mean_abs: Float = 0f,
     val trunk_ang_vel_p95_abs: Float = 0f,
     
-    // V2: Dual aggregation — feat_diff = abs(cycle_A − cycle_B) for per-cycle features
+    // V2: feat_diff = abs(cycle_A - cycle_B) for per-cycle features
     val cadence_diff: Float = 0f,
     val stride_time_diff: Float = 0f,
     val step_time_asymmetry_diff: Float = 0f,
@@ -333,7 +333,17 @@ data class GaitDiagnostics(
     val wasFlipped: Boolean,
     val qualityFlag: QualityFlag,
     val rejectionReasons: List<String> = emptyList()
-)
+) {
+    companion object {
+        fun empty() = GaitDiagnostics(
+            videoId = "", fpsDetected = 30f, durationS = 0f,
+            numFramesTotal = 0, numFramesValid = 0, validFrameRate = 0f,
+            numStepsDetected = 0, numStridesValid = 0, estimatedCadenceSpm = 0f,
+            walkingDirection = "", wasFlipped = false, qualityFlag = QualityFlag.UNPROCESSABLE,
+            rejectionReasons = listOf("No pose frames")
+        )
+    }
+}
 
 /**
  * A single detected step event.

@@ -17,15 +17,8 @@ import kotlinx.coroutines.withContext
 import GaitVision.com.R
 import GaitVision.com.data.AnalysisResult
 import GaitVision.com.data.AppDatabase
-import GaitVision.com.participantId
-import GaitVision.com.extractedFeatures
-import GaitVision.com.extractedSignals
-import GaitVision.com.extractedStrides
-import GaitVision.com.extractionDiagnostics
-import GaitVision.com.scoringResult
-import GaitVision.com.selectedStrideIndices
+import GaitVision.com.AnalysisSession
 import GaitVision.com.gait.*
-import GaitVision.com.galleryUri
 
 class ResultsActivity : BaseActivity() {
 
@@ -102,7 +95,7 @@ class ResultsActivity : BaseActivity() {
      * Load an AnalysisResult from DB and populate the same globals that
      * the live analysis flow uses. Then call calculateGaitScore() as normal.
      *
-     * WARNING HEY READ THIS REEEEEEEEAD: This overwrites shared globals (extractedFeatures, scoringResult, etc.).
+     * WARNING HEY READ THIS REEEEEEEEAD: This overwrites shared globals (AnalysisSession.extractedFeatures, AnalysisSession.scoringResult, etc.).
      * Safe today because navigation is linear, but a ViewModel/StateFlow refactor
      * should replace this if we ever need concurrent or comparative analysis views.
      */
@@ -121,7 +114,7 @@ class ResultsActivity : BaseActivity() {
             }
 
             // Populate globals so all existing code paths work
-            extractedFeatures = GaitFeatures(
+            AnalysisSession.extractedFeatures = GaitFeatures(
                 cadence_spm = result.cadenceSpm ?: Float.NaN,
                 stride_time_s = result.strideTimeS ?: Float.NaN,
                 stride_time_cv = result.strideTimeCv ?: Float.NaN,
@@ -194,15 +187,15 @@ class ResultsActivity : BaseActivity() {
                 valid_stride_count = result.validStrideCount
             )
 
-            Log.d(TAG, "Loaded from DB: features=${extractedFeatures != null}, V2 sample: stride_relL=${extractedFeatures?.stride_length_relL_norm}, toe_max_L=${extractedFeatures?.toe_clearance_left_max}")
+            Log.d(TAG, "Loaded from DB: features=${AnalysisSession.extractedFeatures != null}, V2 sample: stride_relL=${AnalysisSession.extractedFeatures?.stride_length_relL_norm}, toe_max_L=${AnalysisSession.extractedFeatures?.toe_clearance_left_max}")
 
-            scoringResult = ScoringResult(
+            AnalysisSession.scoringResult = ScoringResult(
                 aeScore = result.aeScore ?: Float.NaN,
                 ridgeScore = result.ridgeScore ?: Float.NaN,
                 pcaScore = result.pcaScore ?: Float.NaN
             )
 
-            extractionDiagnostics = GaitDiagnostics(
+            AnalysisSession.extractionDiagnostics = GaitDiagnostics(
                 videoId = result.videoFileName,
                 fpsDetected = result.fpsDetected ?: 30f,
                 durationS = (result.videoLengthMicroseconds ?: 0) / 1_000_000f,
@@ -217,7 +210,7 @@ class ResultsActivity : BaseActivity() {
                 qualityFlag = try { QualityFlag.valueOf(result.qualityFlag ?: "OK") } catch (_: Exception) { QualityFlag.OK }
             )
 
-            participantId = result.patientId
+            AnalysisSession.participantId = result.patientId
 
             // Now just use the same display path
             calculateGaitScore()
@@ -225,9 +218,9 @@ class ResultsActivity : BaseActivity() {
     }
 
     private fun calculateGaitScore() {
-        val pcFeatures = extractedFeatures
-        val pcScore = scoringResult
-        val diagnostics = extractionDiagnostics
+        val pcFeatures = AnalysisSession.extractedFeatures
+        val pcScore = AnalysisSession.scoringResult
+        val diagnostics = AnalysisSession.extractionDiagnostics
 
         if (pcFeatures != null && pcScore != null && pcFeatures.valid_stride_count > 0) {
             calculatedScore = pcScore.getScoreForDatabase()
@@ -288,7 +281,7 @@ class ResultsActivity : BaseActivity() {
     }
 
     private fun showFeaturesDialog() {
-        val f = extractedFeatures
+        val f = AnalysisSession.extractedFeatures
         if (f == null) {
             Toast.makeText(this, "No features available", Toast.LENGTH_SHORT).show()
             return
@@ -364,16 +357,16 @@ class ResultsActivity : BaseActivity() {
     }
 
     private fun exportCsvFiles() {
-        if (extractionDiagnostics == null) {
+        if (AnalysisSession.extractionDiagnostics == null) {
             Toast.makeText(this, "Nothing to export", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val filePrefix = if (participantId == 0) {
+        val filePrefix = if (AnalysisSession.participantId == 0) {
             val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US).format(java.util.Date())
             "${timestamp}_0"
         } else {
-            participantId.toString()
+            AnalysisSession.participantId.toString()
         }
 
         val filename = GaitCsvExporter.generateFilename(filePrefix)
@@ -382,23 +375,23 @@ class ResultsActivity : BaseActivity() {
 
     private fun writeCsvToUri(uri: Uri) {
         try {
-            val diagnostics = extractionDiagnostics ?: return
-            val videoName = galleryUri?.lastPathSegment
+            val diagnostics = AnalysisSession.extractionDiagnostics ?: return
+            val videoName = AnalysisSession.galleryUri?.lastPathSegment
                 ?: diagnostics.videoId.takeIf { it.isNotBlank() }
                 ?: "unknown"
-            val filePrefix = if (participantId == 0) "0" else participantId.toString()
+            val filePrefix = if (AnalysisSession.participantId == 0) "0" else AnalysisSession.participantId.toString()
 
             contentResolver.openOutputStream(uri)?.use { stream ->
                 val success = GaitCsvExporter.writeToStream(
                     outputStream = stream,
-                    features = extractedFeatures,
+                    features = AnalysisSession.extractedFeatures,
                     diagnostics = diagnostics,
-                    score = scoringResult,
+                    score = AnalysisSession.scoringResult,
                     participantId = filePrefix,
                     videoName = videoName,
-                    strides = extractedStrides,
-                    selectedStrideIndices = selectedStrideIndices,
-                    signals = extractedSignals
+                    strides = AnalysisSession.extractedStrides,
+                    selectedStrideIndices = AnalysisSession.selectedStrideIndices,
+                    signals = AnalysisSession.extractedSignals
                 )
                 if (success) {
                     Toast.makeText(this, "CSV exported successfully", Toast.LENGTH_SHORT).show()

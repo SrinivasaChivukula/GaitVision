@@ -17,9 +17,7 @@ import GaitVision.com.R
 import GaitVision.com.data.AppDatabase
 import GaitVision.com.data.Patient
 import GaitVision.com.data.PatientDao
-import GaitVision.com.participantId
-import GaitVision.com.participantHeight
-import GaitVision.com.currentPatientId
+import GaitVision.com.AnalysisSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -246,9 +244,9 @@ class PatientCreateActivity : BaseActivity() {
 
                 if (startAnalysis) {
                     // Set global variables for analysis flow
-                    participantId = patientId.toInt()
-                    participantHeight = heightInInches
-                    currentPatientId = patientId.toInt()
+                    AnalysisSession.participantId = patientId.toInt()
+                    AnalysisSession.participantHeight = heightInInches
+                    AnalysisSession.currentPatientId = patientId.toInt()
 
                     // Go to video picker
                     val intent = Intent(this@PatientCreateActivity, VideoPickerActivity::class.java)

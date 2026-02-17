@@ -29,20 +29,7 @@ import GaitVision.com.data.repository.AnalysisResultRepository
 import GaitVision.com.data.repository.SignalDataRepository
 import GaitVision.com.data.repository.PatientRepository
 import GaitVision.com.ProcVidEmpty
-import GaitVision.com.galleryUri
-import GaitVision.com.editedUri
-import GaitVision.com.extractedSignals
-import GaitVision.com.participantId
-import GaitVision.com.participantHeight
-import GaitVision.com.currentPatientId
-import GaitVision.com.currentResultId
-import GaitVision.com.videoLength
-import GaitVision.com.extractedFeatures
-import GaitVision.com.extractedStrides
-import GaitVision.com.extractionDiagnostics
-import GaitVision.com.scoringResult
-import GaitVision.com.selectedStrideIndices
-import GaitVision.com.stepSignalMode
+import GaitVision.com.AnalysisSession
 import android.provider.OpenableColumns
 import org.json.JSONArray
 import org.json.JSONObject
@@ -95,20 +82,20 @@ class AnalysisActivity : BaseActivity() {
 
         // Get the video URI from VideoPickerActivity
         intent.data?.let { uri ->
-            galleryUri = uri
+            AnalysisSession.galleryUri = uri
         }
 
         setupInitialUI()
         setupButtons()
 
         // Check if we have a video to process
-        if (galleryUri == null) {
+        if (AnalysisSession.galleryUri == null) {
             Toast.makeText(this, "No video selected. Please go back.", Toast.LENGTH_SHORT).show()
             findViewById<Button>(R.id.btnRunAnalysis).isEnabled = false
         }
 
         // If already processed, show the video
-        if (editedUri != null) {
+        if (AnalysisSession.editedUri != null) {
             showProcessedVideo()
         }
     }
@@ -124,10 +111,10 @@ class AnalysisActivity : BaseActivity() {
         findViewById<View>(R.id.infoSection).visibility = View.VISIBLE
 
         // Update participant info
-        val participantLabel = if (shouldSave) "Participant: $participantId" else "Quick Analysis"
-        findViewById<TextView>(R.id.tvParticipantInfo).text = "$participantLabel\nHeight: ${participantHeight / 12}'${participantHeight % 12}\""
+        val participantLabel = if (shouldSave) "Participant: ${AnalysisSession.participantId}" else "Quick Analysis"
+        findViewById<TextView>(R.id.tvParticipantInfo).text = "$participantLabel\nHeight: ${AnalysisSession.participantHeight / 12}'${AnalysisSession.participantHeight % 12}\""
 
-        galleryUri?.let {
+        AnalysisSession.galleryUri?.let {
             findViewById<TextView>(R.id.tvVideoStatus).text = "Video ready for analysis"
         } ?: run {
             findViewById<TextView>(R.id.tvVideoStatus).text = "No video selected"
@@ -136,7 +123,7 @@ class AnalysisActivity : BaseActivity() {
 
     private fun setupButtons() {
         findViewById<Button>(R.id.btnRunAnalysis).setOnClickListener {
-            if (!isProcessing && galleryUri != null) {
+            if (!isProcessing && AnalysisSession.galleryUri != null) {
                 runAnalysis()
             }
         }
@@ -165,16 +152,16 @@ class AnalysisActivity : BaseActivity() {
                     val patientRepository = PatientRepository(database.patientDao())
                     val patient = withContext(Dispatchers.IO) {
                         patientRepository.findOrCreatePatientByParticipantId(
-                            participantId = participantId,
-                            height = participantHeight
+                            participantId = AnalysisSession.participantId,
+                            height = AnalysisSession.participantHeight
                         )
                     }
-                    currentPatientId = patient.participantId
+                    AnalysisSession.currentPatientId = patient.participantId
                     Log.d(TAG, "Patient ID: ${patient.participantId}")
                 } else {
                     // For quick analysis, we need a dummy patient ID for processing if it uses it internally,
-                    // but looking at saveToDatabase, currentPatientId is only used for saving.
-                    // ProcVidEmpty doesn't seem to use currentPatientId.
+                    // but looking at saveToDatabase, AnalysisSession.currentPatientId is only used for saving.
+                    // ProcVidEmpty doesn't seem to use AnalysisSession.currentPatientId.
                     Log.d(TAG, "Skipping patient creation/lookup (One-off analysis)")
                 }
 
@@ -185,7 +172,7 @@ class AnalysisActivity : BaseActivity() {
                     outputFile.delete()
                 }
 
-                editedUri = withContext(Dispatchers.IO) {
+                AnalysisSession.editedUri = withContext(Dispatchers.IO) {
                     ProcVidEmpty(this@AnalysisActivity, outputFilePath, this@AnalysisActivity)
                 }
 
@@ -217,27 +204,27 @@ class AnalysisActivity : BaseActivity() {
     }
 
     private suspend fun saveToDatabase(database: AppDatabase, outputPath: String) {
-        if (!shouldSave || currentPatientId == null || editedUri == null) return
+        if (!shouldSave || AnalysisSession.currentPatientId == null || AnalysisSession.editedUri == null) return
 
         try {
             val resultRepo = AnalysisResultRepository(database.analysisResultDao())
             val signalRepo = SignalDataRepository(database.signalDataDao())
 
             withContext(Dispatchers.IO) {
-                val videoName = galleryUri?.let { uri ->
+                val videoName = AnalysisSession.galleryUri?.let { uri ->
                     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                         if (cursor.moveToFirst()) cursor.getString(0) else null
                     }
                 } ?: ""
-                val features = extractedFeatures
-                val score = scoringResult
-                val diagnostics = extractionDiagnostics
+                val features = AnalysisSession.extractedFeatures
+                val score = AnalysisSession.scoringResult
+                val diagnostics = AnalysisSession.extractionDiagnostics
 
                 // Save analysis result (replaces old Video + GaitScore saves)
                 val result = AnalysisResult(
-                    patientId = currentPatientId!!,
+                    patientId = AnalysisSession.currentPatientId!!,
                     videoFileName = videoName,
-                    videoLengthMicroseconds = videoLength,
+                    videoLengthMicroseconds = AnalysisSession.videoLength,
                     recordedAt = System.currentTimeMillis(),
 
                     // Scores
@@ -247,7 +234,7 @@ class AnalysisActivity : BaseActivity() {
                     pcaScore = score?.pcaScore,
 
                     // Pipeline metadata
-                    stepSignalMode = stepSignalMode,
+                    stepSignalMode = AnalysisSession.stepSignalMode,
                     validStrideCount = features?.valid_stride_count ?: 0,
                     qualityFlag = diagnostics?.qualityFlag?.name,
 
@@ -341,7 +328,7 @@ class AnalysisActivity : BaseActivity() {
                     footPitchLeftRangeDiff = features?.foot_pitch_left_range_diff,
                     footPitchRightRangeDiff = features?.foot_pitch_right_range_diff,
 
-                    stridesJson = extractedStrides?.let { strides ->
+                    stridesJson = AnalysisSession.extractedStrides?.let { strides ->
                         JSONArray().apply {
                             strides.forEach { s ->
                                 put(JSONObject().apply {
@@ -359,16 +346,16 @@ class AnalysisActivity : BaseActivity() {
                             }
                         }.toString()
                     },
-                    selectedStrideIndicesJson = selectedStrideIndices?.let {
+                    selectedStrideIndicesJson = AnalysisSession.selectedStrideIndices?.let {
                         JSONArray(it).toString()
                     }
                 )
-                Log.d(TAG, "Saving V2 sample: stride_relL=${features?.stride_length_relL_norm}, toe_max_L=${features?.toe_clearance_left_max}, selectedStrides=$selectedStrideIndices")
+                Log.d(TAG, "Saving V2 sample: stride_relL=${features?.stride_length_relL_norm}, toe_max_L=${features?.toe_clearance_left_max}, selectedStrides=${AnalysisSession.selectedStrideIndices}")
                 val resultId = resultRepo.insertResult(result)
-                currentResultId = resultId
+                AnalysisSession.currentResultId = resultId
 
                 // Save per-frame signal data for graph reload
-                val signals = extractedSignals
+                val signals = AnalysisSession.extractedSignals
                 if (signals != null) {
                     val signalDataList = mutableListOf<SignalData>()
                     val maxFrames = signals.kneeAngleLeft.size
@@ -425,7 +412,7 @@ class AnalysisActivity : BaseActivity() {
         
         findViewById<Button>(R.id.btnRunAnalysis).visibility = View.GONE
 
-        editedUri?.let { uri ->
+        AnalysisSession.editedUri?.let { uri ->
             videoView.setVideoURI(uri)
             val mediaController = MediaController(this)
             mediaController.setAnchorView(videoView)
@@ -446,7 +433,7 @@ class AnalysisActivity : BaseActivity() {
     }
 
     private fun setupStrideChart() {
-        val signals = extractedSignals ?: return
+        val signals = AnalysisSession.extractedSignals ?: return
 
         val dataSets = mutableListOf<LineDataSet>()
         tvChartLabel.text = "Stride Signal: Inter-Ankle Distance"
@@ -470,8 +457,8 @@ class AnalysisActivity : BaseActivity() {
      * Gold = selected cycles, Green = valid (not selected), Gray = invalid.
      */
     private fun addStrideBoundaries() {
-        val strides = extractedStrides ?: return
-        val selectedIndices = selectedStrideIndices ?: emptyList()
+        val strides = AnalysisSession.extractedStrides ?: return
+        val selectedIndices = AnalysisSession.selectedStrideIndices ?: emptyList()
         
         for ((idx, stride) in strides.withIndex()) {
             val isSelected = selectedIndices.contains(idx)
@@ -552,7 +539,7 @@ class AnalysisActivity : BaseActivity() {
 
     private fun startAngleUpdates() {
         lastCursorIndex = -1
-        val fps = extractionDiagnostics?.fpsDetected ?: 30f
+        val fps = AnalysisSession.extractionDiagnostics?.fpsDetected ?: 30f
         val msPerFrame = (1000f / fps).toInt().coerceAtLeast(1)
         updateRunnable = object : Runnable {
             override fun run() {
@@ -568,7 +555,7 @@ class AnalysisActivity : BaseActivity() {
     }
 
     private fun updateAngleDisplay(index: Int) {
-        val signals = extractedSignals
+        val signals = AnalysisSession.extractedSignals
         tvAnkleAngles.text = buildAngleString("Ankle", signals?.ankleAngleLeft, signals?.ankleAngleRight, index)
         tvKneeAngles.text = buildAngleString("Knee", signals?.kneeAngleLeft, signals?.kneeAngleRight, index)
         tvHipAngles.text = buildAngleString("Hip", signals?.hipAngleLeft, signals?.hipAngleRight, index)

@@ -20,10 +20,7 @@ import kotlinx.coroutines.withContext
 import GaitVision.com.R
 import GaitVision.com.data.AppDatabase
 import GaitVision.com.data.SignalData
-import GaitVision.com.extractedSignals
-import GaitVision.com.extractedStrides
-import GaitVision.com.selectedStrideIndices
-import GaitVision.com.stepSignalMode
+import GaitVision.com.AnalysisSession
 import GaitVision.com.gait.Signals
 import GaitVision.com.gait.Stride
 import org.json.JSONArray
@@ -185,7 +182,7 @@ class SignalsDashboardActivity : BaseActivity() {
     /**
      * Load from DB into globals, then call displaySignals() as normal.
      *
-     * WARNING: This overwrites shared globals (extractedSignals, extractedStrides, etc.).
+     * WARNING: This overwrites shared globals (AnalysisSession.extractedSignals, AnalysisSession.extractedStrides, etc.).
      * Safe today because navigation is linear, but a ViewModel/StateFlow refactor
      * should replace this if we ever need concurrent or comparative analysis views.
      */
@@ -202,10 +199,10 @@ class SignalsDashboardActivity : BaseActivity() {
 
             // Set globals so all existing code works
             val signals = buildSignalsFromDb(signalRows)
-            extractedSignals = signals
-            stepSignalMode = result?.stepSignalMode
-            extractedStrides = parseStridesJson(result?.stridesJson)
-            selectedStrideIndices = parseSelectedIndicesJson(result?.selectedStrideIndicesJson)
+            AnalysisSession.extractedSignals = signals
+            AnalysisSession.stepSignalMode = result?.stepSignalMode
+            AnalysisSession.extractedStrides = parseStridesJson(result?.stridesJson)
+            AnalysisSession.selectedStrideIndices = parseSelectedIndicesJson(result?.selectedStrideIndicesJson)
 
             Log.d(TAG, "Loaded signals: ${signals.timestamps.size} frames, heelY non-NaN=${signals.heelLeftY.count { !it.isNaN() }}, toeY=${signals.toeLeftY.count { !it.isNaN() }}, midHipX=${signals.midHipX.count { !it.isNaN() }}")
 
@@ -214,8 +211,8 @@ class SignalsDashboardActivity : BaseActivity() {
     }
 
     private fun displaySignals() {
-        val signals = extractedSignals
-        val strides = extractedStrides
+        val signals = AnalysisSession.extractedSignals
+        val strides = AnalysisSession.extractedStrides
 
         if (signals == null) {
             tvStepMode.text = "No data"
@@ -230,7 +227,7 @@ class SignalsDashboardActivity : BaseActivity() {
         cachedStrides = strides
         populatedCharts.clear()
 
-        tvStepMode.text = stepSignalMode ?: "UNKNOWN"
+        tvStepMode.text = AnalysisSession.stepSignalMode ?: "UNKNOWN"
         tvValidStrides.text = (strides?.count { it.isValid } ?: 0).toString()
 
         val validFrames = signals.isValid.count { it }
@@ -264,7 +261,7 @@ class SignalsDashboardActivity : BaseActivity() {
         val toeLeftY = FloatArray(n) { rows[it].toeLeftY ?: Float.NaN }
         val toeRightY = FloatArray(n) { rows[it].toeRightY ?: Float.NaN }
         val midHipX = FloatArray(n) { rows[it].midHipX ?: Float.NaN }
-        // Fields not stored in signal_data — fill with NaN
+        // Fields not stored in signal_data: fill with NaN
         val empty = FloatArray(n) { Float.NaN }
 
         return Signals(
@@ -403,7 +400,7 @@ class SignalsDashboardActivity : BaseActivity() {
         // Clear previous limit lines
         chart.xAxis.removeAllLimitLines()
         
-        val selectedIndices = selectedStrideIndices ?: emptyList()
+        val selectedIndices = AnalysisSession.selectedStrideIndices ?: emptyList()
 
         strides.forEachIndexed { idx, stride ->
             val startTime = signals.timestamps.getOrNull(stride.startFrame) ?: return@forEachIndexed
