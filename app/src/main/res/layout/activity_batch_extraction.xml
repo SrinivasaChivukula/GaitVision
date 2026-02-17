@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A2E">
+
+    <include
+        android:id="@+id/header"
+        layout="@layout/layout_common_header" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:fillViewport="true"
+        app:layout_constraintTop_toBottomOf="@id/header"
+        app:layout_constraintBottom_toTopOf="@id/includedFooter">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Select a folder containing metadata.csv and training videos. Then choose an output CSV file."
+                android:textColor="#AAAAAA"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <Button
+                android:id="@+id/btnBatchPickFolder"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Pick folder (videos + metadata.csv)"
+                android:textColor="@color/white"
+                android:backgroundTint="#2196F3"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnBatchPickOutput"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Pick output CSV file"
+                android:textColor="@color/white"
+                android:backgroundTint="#4CAF50"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tvBatchStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Pick folder first"
+                android:textColor="#999999"
+                android:textSize="14sp"
+                android:minLines="2"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/tvBatchOverall"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Overall: 0/0 videos"
+                android:textColor="#E0E0E0"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                android:layout_marginBottom="4dp" />
+
+            <ProgressBar
+                android:id="@+id/progressBatch"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tvBatchCurrentVideo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Current: —"
+                android:textColor="#AAAAAA"
+                android:textSize="14sp"
+                android:visibility="gone"
+                android:layout_marginBottom="4dp" />
+
+            <ProgressBar
+                android:id="@+id/progressBatchCurrent"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:layout_marginBottom="12dp" />
+
+
+            <Button
+                android:id="@+id/btnBatchRun"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Run batch extraction"
+                android:textColor="@color/white"
+                android:backgroundTint="#9C27B0"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnBatchCancel"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Cancel"
+                android:textColor="@color/white"
+                android:backgroundTint="#F44336"
+                android:visibility="gone" />
+        </LinearLayout>
+    </ScrollView>
+
+    <include
+        android:id="@id/includedFooter"
+        layout="@layout/layout_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:layout_constraintBottom_toBottomOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

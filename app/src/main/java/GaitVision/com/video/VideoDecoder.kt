@@ -14,9 +14,6 @@ import java.io.FileDescriptor
 
 private const val TAG = "GaitMedia"
 
-/**
- * Video metadata extracted during decode setup.
- */
 data class VideoMetadata(
     val width: Int,
     val height: Int,
@@ -26,10 +23,7 @@ data class VideoMetadata(
     val videoMime: String
 )
 
-/**
- * Convert YUV_420_888 Image (from MediaCodec) to ARGB Bitmap.
- * LOSSLESS direct YUV→RGB conversion. Uses reusable buffers to avoid allocations per frame.
- */
+/** YUV→ARGB. Reuses buffers. */
 private var yBytesCache: ByteArray? = null
 private var uBytesCache: ByteArray? = null
 private var vBytesCache: ByteArray? = null
@@ -83,7 +77,7 @@ internal fun imageToBitmap(image: Image): Bitmap {
     return bitmap
 }
 
-/** Open a video URI via PFD, falling back to content resolver. */
+/** Open URI via PFD, fallback to content resolver. */
 fun setDataSourceSafe(context: Context, uri: Uri, vararg targets: Any) {
     try {
         val pfd = context.contentResolver.openFileDescriptor(uri, "r")
@@ -106,7 +100,7 @@ fun setDataSourceSafe(context: Context, uri: Uri, vararg targets: Any) {
     }
 }
 
-/** Release reusable YUV conversion buffers. */
+/** Release YUV/bitmap caches. */
 fun releaseDecoderCaches() {
     bitmapCache?.recycle()
     bitmapCache = null
@@ -116,11 +110,7 @@ fun releaseDecoderCaches() {
     pixelsCache = null
 }
 
-/**
- * Decode video frames using MediaCodec. Calls onMetadataReady before first frame, then onFrame for each frame.
- * Optional onProgress(totalFrames, currentIndex) for UI updates.
- * Returns VideoMetadata on success, null on failure.
- */
+/** Decode via MediaCodec. onMetadataReady, then onFrame per frame. Optional onProgress. */
 fun decodeFramesMediaCodec(
     context: Context,
     uri: Uri,
@@ -243,9 +233,7 @@ fun decodeFramesMediaCodec(
     return metadata
 }
 
-/**
- * Fallback: decode frames using getFrameAtTime (slower).
- */
+/** Fallback decode (slower). */
 fun decodeFramesGetFrameAtTime(
     context: Context,
     uri: Uri,
@@ -291,9 +279,7 @@ fun decodeFramesGetFrameAtTime(
     return metadata
 }
 
-/**
- * Detect actual FPS from video metadata. Falls back to 30 FPS if detection fails.
- */
+/** Detect FPS from metadata. Default 30. */
 fun detectVideoFps(context: Context, uri: Uri?): Float {
     if (uri == null) return 30f
     val retriever = MediaMetadataRetriever()

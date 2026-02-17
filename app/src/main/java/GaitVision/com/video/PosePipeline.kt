@@ -58,7 +58,7 @@ fun releaseMediaPipeBackend() {
 
 fun isMediaPipeUsingGpu(): Boolean = mediaPipeBackend?.isUsingGpu() ?: false
 
-/** Map a MediaPipe landmark index to its left/right mirror. */
+/** L/R mirror index for landmark swap. */
 fun getLRSwapIndex(idx: Int): Int {
     return when (idx) {
         1 -> 4; 4 -> 1;  2 -> 5; 5 -> 2;  3 -> 6; 6 -> 3
@@ -79,9 +79,7 @@ private fun dist2d(a: FloatArray, b: FloatArray): Float {
     return kotlin.math.sqrt(dx * dx + dy * dy)
 }
 
-/**
- * Fixes per-frame L/R landmark swaps. Must run BEFORE normalizeDirection().
- */
+/** Fix per-frame L/R swaps. Run before normalizeDirection(). */
 fun stabilizeLandmarkIdentity(poseSeq: PoseSequence): PoseSequence {
     val MIN_CONF = GaitVision.com.gait.GaitConfig.MIN_CONFIDENCE
     val HYSTERESIS = 0.8f
@@ -137,9 +135,6 @@ fun stabilizeLandmarkIdentity(poseSeq: PoseSequence): PoseSequence {
     return poseSeq.copy(frames = stabilizedFrames)
 }
 
-/**
- * Process a single frame using MediaPipe. Returns PoseFrame or null.
- */
 fun processFrameWithMediaPipe(
     bitmap: Bitmap,
     frameIdx: Int,

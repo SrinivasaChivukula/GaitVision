@@ -8,9 +8,7 @@ import GaitVision.com.gait.Signals
 import GaitVision.com.gait.Stride
 import GaitVision.com.mediapipe.PoseFrame
 
-/**
- * Holds session state for gait analysis flow (VideoPicker, Analysis, Results, SignalsDashboard).
- */
+/** Session state for analysis flow. */
 object AnalysisSession {
     var galleryUri: Uri? = null
     var editedUri: Uri? = null

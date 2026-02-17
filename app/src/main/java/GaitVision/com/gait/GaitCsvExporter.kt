@@ -3,19 +3,17 @@ package GaitVision.com.gait
 import android.util.Log
 import java.io.OutputStream
 import java.io.OutputStreamWriter
+import java.io.Writer
 import java.text.SimpleDateFormat
+import GaitVision.com.batch.MetadataRow
 import java.util.*
 
-/**
- * CSV export utility for gait analysis results.
- * Exports in PC pipeline compatible format.
- * Uses OutputStream so callers can write to any destination (SAF, file, etc.)
- */
+/** CSV export for gait results. PC pipeline format. */
 object GaitCsvExporter {
     
     private const val TAG = "GaitLogging"
 
-    /** Sanitize a value for safe CSV output (prevents formula injection in Excel/Sheets). */
+    /** Quote formulas to prevent Excel injection. */
     private fun sanitize(value: String): String {
         val needsQuoting = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
         val startsWithFormula = value.firstOrNull()?.let { it == '=' || it == '+' || it == '-' || it == '@' } ?: false
@@ -26,21 +24,11 @@ object GaitCsvExporter {
         }
     }
 
-    /** Generate a suggested filename for the CSV export. */
     fun generateFilename(participantId: String): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         return "${participantId}_gait_${timestamp}.csv"
     }
 
-    /**
-     * Write gait features and diagnostics as CSV to the given OutputStream.
-     * Optionally includes stride boundaries, selected stride indices, and per-frame signals.
-     * Returns true on success.
-     *
-     * @param strides All detected strides (for boundary export)
-     * @param selectedStrideIndices Indices of the 2 strides used for feature computation
-     * @param signals Per-frame signals (when provided, appends a GAIT_SIGNALS section)
-     */
     fun writeToStream(
         outputStream: OutputStream,
         features: GaitFeatures?,
@@ -57,7 +45,7 @@ object GaitCsvExporter {
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
             OutputStreamWriter(outputStream).use { writer ->
-                // Section 1: GAIT_RESULTS
+                // GAIT_RESULTS
                 val headers = mutableListOf(
                     "participant_id",
                     "video_name",
@@ -74,17 +62,17 @@ object GaitCsvExporter {
                     "num_strides_valid"
                 )
 
-                // Stride selection info
+                // Stride selection
                 headers.add("selected_stride_indices")
                 headers.add("stride_0_start_frame")
                 headers.add("stride_0_end_frame")
                 headers.add("stride_1_start_frame")
                 headers.add("stride_1_end_frame")
 
-                // Add feature columns (V1 + V2)
+                // Features
                 headers.addAll(GaitFeatures.CSV_FEATURE_COLUMNS)
 
-                // Add score columns (3 models)
+                // Scores
                 headers.addAll(listOf(
                     "ae_score",
                     "ridge_score",
@@ -94,10 +82,10 @@ object GaitCsvExporter {
                 writer.write(headers.joinToString(","))
                 writer.write("\n")
 
-                // Data row
+                // Row
                 val values = mutableListOf<String>()
 
-                // Metadata (sanitize user-controlled strings to prevent CSV injection)
+                // Metadata
                 values.add(sanitize(participantId))
                 values.add(sanitize(videoName))
                 values.add(timestamp)
@@ -123,7 +111,7 @@ object GaitCsvExporter {
                 values.add(stride1?.startFrame?.toString() ?: "")
                 values.add(stride1?.endFrame?.toString() ?: "")
 
-                // Features (or NaN if not available)
+                // Features
                 if (features != null) {
                     val featureArray = features.toCsvFeatureArray()
                     for (f in featureArray) {
@@ -133,7 +121,7 @@ object GaitCsvExporter {
                     repeat(GaitFeatures.CSV_FEATURE_COLUMNS.size) { values.add("NaN") }
                 }
 
-                // Scores (3 models)
+                // Scores
                 if (score != null) {
                     values.add(if (score.aeScore.isNaN()) "NaN" else score.aeScore.toString())
                     values.add(if (score.ridgeScore.isNaN()) "NaN" else score.ridgeScore.toString())
@@ -195,10 +183,91 @@ object GaitCsvExporter {
             false
         }
     }
-    
-    /**
-     * Generate a summary string for display.
-     */
+
+    /** Batch header: training dataset format. */
+    fun writeBatchHeader(writer: Writer) {
+        val headers = listOf(
+            "video_id", "success", "processing_time", "patient_id", "condition", "severity", "trial", "label",
+            "quality_flag", "used_roi", "has_mid_turn", "turn_ratio",
+            "num_frames_total", "num_frames_valid", "valid_frame_rate", "num_strides_valid", "num_strides_used",
+            "stride_selection_reason", "fps", "duration_s"
+        ) + GaitFeatures.CSV_FEATURE_COLUMNS + "error"
+        writer.write(headers.joinToString(","))
+        writer.write("\n")
+    }
+
+    /** Write one batch row. */
+    fun writeBatchRow(
+        writer: Writer,
+        videoId: String,
+        success: Boolean,
+        processingTimeMs: Long,
+        metadata: MetadataRow,
+        features: GaitFeatures?,
+        diagnostics: GaitDiagnostics,
+        errorMsg: String = ""
+    ) {
+        val patientIdShort = shortenSubjectId(metadata.subjectId)
+        val conditionPc = mapConditionToPc(metadata.condition)
+        val severityPc = mapSeverityToPc(metadata.severity)
+        val labelCap = when (metadata.label.lowercase()) {
+            "clean" -> "Normal"
+            "impaired" -> "Impaired"
+            else -> metadata.label.replaceFirstChar { it.uppercase() }
+        }
+        val values = mutableListOf<String>()
+        values.add(sanitize(videoId))
+        values.add(success.toString())
+        values.add(processingTimeMs.toString())
+        values.add(sanitize(patientIdShort))
+        values.add(sanitize(conditionPc))
+        values.add(sanitize(severityPc))
+        values.add(sanitize(metadata.trial))
+        values.add(sanitize(labelCap))
+        values.add(diagnostics.qualityFlag.name)
+        values.add("False")
+        values.add("False")
+        values.add("0")
+        values.add(diagnostics.numFramesTotal.toString())
+        values.add(diagnostics.numFramesValid.toString())
+        values.add(diagnostics.validFrameRate.toString())
+        values.add(diagnostics.numStridesValid.toString())
+        values.add("2")
+        values.add("best_consecutive_pair")
+        values.add(diagnostics.fpsDetected.toString())
+        values.add(diagnostics.durationS.toString())
+        if (features != null) {
+            for (f in features.toCsvFeatureArray()) {
+                values.add(if (f.isNaN()) "NaN" else f.toString())
+            }
+        } else {
+            repeat(GaitFeatures.CSV_FEATURE_COLUMNS.size) { values.add("NaN") }
+        }
+        values.add(sanitize(errorMsg))
+        writer.write(values.joinToString(","))
+        writer.write("\n")
+    }
+
+    private fun shortenSubjectId(subjectId: String): String {
+        return subjectId.removePrefix("CLIN_").removePrefix("KAG_")
+    }
+
+    private fun mapConditionToPc(condition: String): String = when (condition) {
+        "KneeOA" -> "KOA"
+        "Normal" -> "NM"
+        "Parkinsons" -> "PD"
+        else -> condition
+    }
+
+    private fun mapSeverityToPc(severity: String): String = when (severity.lowercase()) {
+        "early" -> "EL"
+        "moderate" -> "MD"
+        "severe" -> "SV"
+        "none" -> "NM"
+        "mild" -> "ML"
+        else -> severity
+    }
+
     fun generateSummary(
         features: GaitFeatures?,
         diagnostics: GaitDiagnostics,

@@ -36,9 +36,6 @@ import GaitVision.com.video.EncoderState
 
 private const val TAG_MEDIA = "GaitMedia"
 
-/**
- * Hide progress UI elements after processing.
- */
 private suspend fun hideProgressUI(activity: AppCompatActivity) {
     withContext(Dispatchers.Main) {
         activity.findViewById<TextView>(R.id.SplittingText).visibility = GONE
@@ -47,10 +44,6 @@ private suspend fun hideProgressUI(activity: AppCompatActivity) {
     }
 }
 
-/**
- * Process a single frame: pose detection, wireframe drawing, store pose data.
- * Returns the modified bitmap ready for encoding.
- */
 private fun processFrame(frame: Bitmap, frameIndex: Int): Bitmap {
     val poseFrame = processFrameWithMediaPipe(frame, frameIndex)
     val modifiedBitmap = drawOnBitmapMediaPipe(frame, poseFrame)
@@ -60,10 +53,7 @@ private fun processFrame(frame: Bitmap, frameIndex: Int): Bitmap {
     return modifiedBitmap
 }
 
-/**
- * Main video processing: decode, pose detection, overlay, encode, feature extraction, scoring.
- * Uses MediaCodec for fast frame extraction; falls back to getFrameAtTime if decoder fails.
- */
+/** UI path: decode, pose, overlay, encode, extract features. MediaCodec with getFrameAtTime fallback. */
 suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppCompatActivity): Uri? {
     val TAG = TAG_MEDIA
     
@@ -79,7 +69,6 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
         return null
     }
 
-    // Setup UI - single progress bar for streaming
     withContext(Dispatchers.Main) {
         activity.findViewById<TextView>(R.id.SplittingText).text = "Processing..."
         activity.findViewById<TextView>(R.id.SplittingText).visibility = VISIBLE
@@ -87,7 +76,6 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
         activity.findViewById<ProgressBar>(R.id.splittingBar).progress = 0
         activity.findViewById<TextView>(R.id.splittingProgressValue).visibility = VISIBLE
         activity.findViewById<TextView>(R.id.splittingProgressValue).text = " 0%"
-        // Hide the second progress bar - we use only one now
         activity.findViewById<TextView>(R.id.CreationText).visibility = GONE
         activity.findViewById<ProgressBar>(R.id.VideoCreation).visibility = GONE
         activity.findViewById<TextView>(R.id.CreatingProgressValue).visibility = GONE
@@ -159,10 +147,7 @@ suspend fun ProcVidEmpty(context: Context, outputPath: String, activity: AppComp
     return uri
 }
 
-/**
- * Fallback video processing using slow getFrameAtTime() method.
- * Used if MediaCodec initialization fails.
- */
+/** Fallback when MediaCodec fails. */
 private suspend fun procVidEmptyFallback(context: Context, outputPath: String, activity: AppCompatActivity): Uri? {
     val TAG = TAG_MEDIA
     Log.w(TAG, "Using SLOW fallback method (getFrameAtTime)")
@@ -212,10 +197,7 @@ private suspend fun procVidEmptyFallback(context: Context, outputPath: String, a
     return FileProvider.getUriForFile(context, "${context.packageName}.provider", outputFile)
 }
 
-/**
- * Core feature extraction from pose frames. Returns Pair(features, diagnostics).
- * Used by both UI path (extractGaitFeatures) and batch path (runVideoPipelineHeadless).
- */
+/** Extract features from pose frames. Shared by UI and batch paths. */
 private fun extractGaitFeaturesFromPoses(
     context: Context,
     poseFrames: List<PoseFrame>,
@@ -249,7 +231,6 @@ private fun extractGaitFeaturesFromPoses(
     }
 }
 
-/** Extract gait features after all frames are processed and pose data is collected. */
 private suspend fun extractGaitFeatures(
     context: Context,
     frameWidth: Int,
@@ -280,11 +261,12 @@ private suspend fun extractGaitFeatures(
     }
 }
 
-/**
- * Headless video pipeline for batch extraction: decode + pose only, no encoder/UI.
- * Returns Pair(features, diagnostics) or null on failure.
- */
-suspend fun runVideoPipelineHeadless(context: Context, uri: Uri): Pair<GaitFeatures?, GaitDiagnostics>? {
+/** Batch path: decode + pose only. progressCallback from IO thread. */
+suspend fun runVideoPipelineHeadless(
+    context: Context,
+    uri: Uri,
+    progressCallback: ((totalFrames: Int, currentFrame: Int) -> Unit)? = null
+): Pair<GaitFeatures?, GaitDiagnostics>? {
     val TAG = TAG_MEDIA
     val videoId = uri.lastPathSegment ?: "unknown"
     val poseFramesList = mutableListOf<PoseFrame>()
@@ -306,6 +288,16 @@ suspend fun runVideoPipelineHeadless(context: Context, uri: Uri): Pair<GaitFeatu
             onFrame = { frame, idx ->
                 processFrameWithMediaPipe(frame, idx, fps = fps)?.let { poseFramesList.add(it) }
                 frameIndex = idx + 1
+            },
+            onProgress = progressCallback?.let { cb ->
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                var lastReported = -1
+                { totalFrames: Int, currentFrame: Int ->
+                    if (currentFrame != lastReported && (currentFrame % 10 == 0 || currentFrame == totalFrames)) {
+                        lastReported = currentFrame
+                        handler.post { cb(totalFrames, currentFrame) }
+                    }
+                }
             }
         )
     }

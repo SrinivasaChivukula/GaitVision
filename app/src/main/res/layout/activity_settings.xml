@@ -122,6 +122,35 @@
                 android:inputType="textPersonName" />
         </LinearLayout>
 
+        <!-- Developer: Batch Extract (DEBUG only) -->
+        <LinearLayout
+            android:id="@+id/batchExtractSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_background"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Developer"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnBatchExtract"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Batch Extract"
+                android:textColor="@color/white"
+                android:backgroundTint="#9C27B0" />
+        </LinearLayout>
+
         </LinearLayout>
     </LinearLayout>
 

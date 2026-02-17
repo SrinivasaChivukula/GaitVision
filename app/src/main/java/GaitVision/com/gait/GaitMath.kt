@@ -3,7 +3,7 @@ package GaitVision.com.gait
 
 import kotlin.math.sqrt
 
-/** Safe average that returns 0f for empty lists. */
+/** average() returning 0f if empty. */
 internal fun List<Float>.averageOrZero(): Float = if (isNotEmpty()) average().toFloat() else 0f
 
 internal fun List<Float>.std(): Float {
@@ -21,7 +21,7 @@ internal fun List<Float>.median(): Float {
 
 internal fun FloatArray.std(): Float = this.toList().filter { !it.isNaN() }.std()
 
-/** Linear interpolation percentile (numpy-style). */
+/** Linear-interp percentile. */
 internal fun percentile(sortedValues: List<Float>, p: Float): Float {
     if (sortedValues.isEmpty()) return 0f
     if (sortedValues.size == 1) return sortedValues[0]

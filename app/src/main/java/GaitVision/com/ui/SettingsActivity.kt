@@ -1,5 +1,6 @@
 package GaitVision.com.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -7,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
@@ -32,7 +34,21 @@ class SettingsActivity : BaseActivity() {
 
         initViews()
         setupSpinners()
+        setupBatchExtract()
         loadSettings()
+    }
+
+    private fun setupBatchExtract() {
+        val section = findViewById<android.view.View>(R.id.batchExtractSection)
+        val btn = findViewById<Button>(R.id.btnBatchExtract)
+        if (GaitVision.com.BuildConfig.DEBUG) {
+            section.visibility = android.view.View.VISIBLE
+            btn.setOnClickListener {
+                startActivity(Intent(this, BatchExtractionActivity::class.java))
+            }
+        } else {
+            section.visibility = android.view.View.GONE
+        }
     }
 
     private fun initViews() {
@@ -42,7 +58,7 @@ class SettingsActivity : BaseActivity() {
     }
 
     private fun setupSpinners() {
-        // Helper to create adapter with white text
+        // White text adapter
         fun createWhiteAdapter(items: Array<String>): ArrayAdapter<String> {
             return object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
                 override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {

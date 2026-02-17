@@ -7,9 +7,6 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.view.Surface
 
-/**
- * Holds mutable state for video encoding across frames.
- */
 class EncoderState(
     val encoder: MediaCodec,
     val mediaMuxer: MediaMuxer,
@@ -76,7 +73,7 @@ class EncoderState(
     }
 }
 
-/** Create an encoder + muxer for output video. */
+/** Create encoder + muxer. */
 fun createEncoderState(outputPath: String, width: Int, height: Int, fps: Float): EncoderState {
     val mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     val format = MediaFormat.createVideoFormat("video/avc", width, height).apply {

@@ -243,7 +243,7 @@ class PatientCreateActivity : BaseActivity() {
                 ).show()
 
                 if (startAnalysis) {
-                    // Set global variables for analysis flow
+                    // Set session for analysis flow
                     AnalysisSession.participantId = patientId.toInt()
                     AnalysisSession.participantHeight = heightInInches
                     AnalysisSession.currentPatientId = patientId.toInt()

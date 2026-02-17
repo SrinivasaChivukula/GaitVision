@@ -126,6 +126,14 @@
             android:parentActivityName="GaitVision.com.ui.DashboardActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
+        <activity
+            android:name="GaitVision.com.ui.BatchExtractionActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            android:parentActivityName="GaitVision.com.ui.SettingsActivity"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="GaitVision.com.provider"
