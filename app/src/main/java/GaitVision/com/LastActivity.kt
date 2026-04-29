@@ -1,31 +1,29 @@
 package GaitVision.com
 
+import android.app.AlertDialog
 import android.app.Dialog
+import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.app.AlertDialog
-import android.content.Context
-import android.os.Bundle
-import android.widget.Button
-import android.content.Intent
-import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.Bundle
 import android.os.Environment
 import android.util.Log
 import android.view.View
+import android.widget.Button
+import android.widget.CheckBox
 import android.widget.PopupMenu
-import androidx.activity.ComponentActivity
-import java.io.File
-import java.io.FileOutputStream
 import android.widget.TextView
+import androidx.activity.ComponentActivity
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToLong
-import android.widget.CheckBox
-import android.widget.Toast
-import java.io.InputStream
 import kotlin.math.sqrt
 
 class LastActivity : ComponentActivity()
@@ -83,7 +81,7 @@ class LastActivity : ComponentActivity()
             rightKneeMaxAngles.average().toFloat(),
             torsoMinAngles.average().toFloat(),
             torsoMaxAngles.average().toFloat(),
-            calcStrideLengthAvg(participantHeight.toFloat()*39.37F),
+            calcStrideLengthAvg(participantHeight.toFloat() * 39.37F),
             leftKneeMaxAngles.average().toFloat() - leftKneeMinAngles.average().toFloat(),
             rightKneeMaxAngles.average().toFloat() - rightKneeMinAngles.average().toFloat()
         )
@@ -106,7 +104,7 @@ class LastActivity : ComponentActivity()
             (inputData[i] - scalerMean[i]) / safeScalerScale[i]
         }
 
-        val output = Array(1){FloatArray(2)}
+        val output = Array(1) { FloatArray(2) }
         val input = arrayOf(scaledInput)
 
         interpreter.run(input, output)
@@ -143,14 +141,6 @@ class LastActivity : ComponentActivity()
 
         reviewCheckBox.setOnCheckedChangeListener { _, isChecked ->
             exportButton.isEnabled = isChecked
-
-            if (!isChecked) {
-                Toast.makeText(
-                    this,
-                    "You must confirm professional review before exporting.",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
         }
 
         val chooseGraphBtn = findViewById<Button>(R.id.select_graph_btn)
@@ -171,8 +161,7 @@ class LastActivity : ComponentActivity()
             val id = menuItem.itemId
 
             if (id == R.id.menu_hip) {
-                val graphHip = findViewById<TextView>(R.id.select_graph_btn)
-                graphHip.text = "HIP GRAPH"
+                chooseGraphBtn.text = "HIP GRAPH"
 
                 hipGraph.visibility = View.VISIBLE
                 kneeGraph.visibility = View.INVISIBLE
@@ -180,8 +169,7 @@ class LastActivity : ComponentActivity()
                 torsoGraph.visibility = View.INVISIBLE
             }
             else if (id == R.id.menu_knee) {
-                val graphKnee = findViewById<TextView>(R.id.select_graph_btn)
-                graphKnee.text = "KNEE GRAPH"
+                chooseGraphBtn.text = "KNEE GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.VISIBLE
@@ -189,23 +177,22 @@ class LastActivity : ComponentActivity()
                 torsoGraph.visibility = View.INVISIBLE
             }
             else if (id == R.id.menu_ankle) {
-                val graphAnkle = findViewById<TextView>(R.id.select_graph_btn)
-                graphAnkle.text = "ANKLE GRAPH"
+                chooseGraphBtn.text = "ANKLE GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.INVISIBLE
                 ankleGraph.visibility = View.VISIBLE
                 torsoGraph.visibility = View.INVISIBLE
             }
-            else if (id == R.id.menu_torso){
-                val graphTorso = findViewById<TextView>(R.id.select_graph_btn)
-                graphTorso.text = "TORSO GRAPH"
+            else if (id == R.id.menu_torso) {
+                chooseGraphBtn.text = "TORSO GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.INVISIBLE
                 ankleGraph.visibility = View.INVISIBLE
                 torsoGraph.visibility = View.VISIBLE
             }
+
             false
         }
 
@@ -213,7 +200,7 @@ class LastActivity : ComponentActivity()
             popupMenu.show()
         }
 
-        val fileData: List<MutableList<Float>>  = mutableListOf(
+        val fileData: List<MutableList<Float>> = mutableListOf(
             leftHipAngles,
             rightHipAngles,
             leftKneeAngles,
@@ -236,14 +223,14 @@ class LastActivity : ComponentActivity()
         exportButton.setOnClickListener {
             for (i in fileData.indices) {
                 val fileName = buildString {
-                    append(participantId.toString())
+                    append(participantId)
                     append("_")
                     append(angleNames[i])
                     append(".csv")
                 }
 
                 writeToFile(fileName, fileData[i])
-                renameTo(participantId.toString())
+                renameTo(participantId)
             }
 
             val builder: AlertDialog.Builder = AlertDialog.Builder(this)
@@ -294,15 +281,14 @@ class LastActivity : ComponentActivity()
         }
     }
 
-    private fun writeToFile(fileName:String, fileData:MutableList<Float>) {
+    private fun writeToFile(fileName: String, fileData: MutableList<Float>) {
         val fileDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val outputFile = File(fileDirectory, fileName)
 
         FileOutputStream(outputFile).use { output ->
             val identifiersText = "Frame #,Angle\n"
             output.write(identifiersText.toByteArray())
-            for(i in 0 until fileData.size)
-            {
+            for (i in 0 until fileData.size) {
                 val floatData = fileData[i].toString()
                 val index = i.toString()
                 output.write(index.toByteArray())
@@ -313,7 +299,7 @@ class LastActivity : ComponentActivity()
         }
     }
 
-    private fun renameTo(participantId:String) {
+    private fun renameTo(participantId: String) {
         val vidName = buildString {
             append(participantId)
             append("_video.mp4")
