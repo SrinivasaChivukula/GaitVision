@@ -20,40 +20,24 @@ import java.io.FileOutputStream
 import android.widget.TextView
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
-import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.roundToLong
-
+import android.widget.CheckBox
+import android.widget.Toast
 import java.io.InputStream
 import kotlin.math.sqrt
 
 class LastActivity : ComponentActivity()
 {
-    /*
-    Name           : loadFloatBinFile
-    Parameters     :
-        context    : This parameter is the interface that contains global information about
-                     the application environment.
-        filename   : This is the filename/path for the file we want to open.
-    Description    : This function will read in the data from file specified for use in the gait score
-                     process. It reads the entire binary file and converts the values in little endian
-                      to floats that were originally used.
-    Return         :
-        FloatArray : Returns an array of the float values to be used for calculating the gait score.
-                     Array is a 1 by 9 array
-     */
     fun loadFloatBinFile(context: Context, filename: String): FloatArray {
-        //Open file and read all the data
         val inputStream = context.assets.open(filename)
         val bytes = inputStream.readBytes()
         inputStream.close()
 
-        ///Change from bytearray to byte buffer in little endian
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val numFloats = bytes.size / 4
 
-        //Loop through array including all values into return value
         val result = FloatArray(numFloats)
         for (i in 0 until numFloats) {
             result[i] = buffer.float
@@ -62,26 +46,13 @@ class LastActivity : ComponentActivity()
         return result
     }
 
-    /*
-    Name            : loadNpyFloatArray
-    Parameters      :
-        assetStream : An opened file with the data we want to read out of.
-    Description     : This function will read a file with information on the clean and impaired
-                      centroid information used in the gait score training.
-    Return:
-        FloatArray : Returns an array of the locations of the centroid on the 2D plane during
-                     gait analysis training. Array is a 1 by 2
-     */
     fun loadNpyFloatArray(assetStream: InputStream): FloatArray {
-        //Ignore header information of file
         val header = ByteArray(128)
         assetStream.read(header)
 
-        // Skip to data
         val data = assetStream.readBytes()
         val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
 
-        //Add value to array
         val floatList = mutableListOf<Float>()
         while (buffer.hasRemaining()) {
             floatList.add(buffer.float)
@@ -90,34 +61,21 @@ class LastActivity : ComponentActivity()
         return floatList.toFloatArray()
     }
 
-    /*
-    Name        : euclideanDistance
-    Parameters  :
-        a       : First point we want position of.
-        b       : Second point we want position of.
-    Description : This function will calculate the distance between the 2 points in a 2D plane.
-                 Uses pythagorean theorem.
-    Return      :
-        Float   : Returns the distance between both points.
-     */
     fun euclideanDistance(a: FloatArray, b: FloatArray): Float {
-        var sum = 0f  // Initialize a sum variable for the squared differences
+        var sum = 0f
 
-        // Loop through each pair of elements from a and b
         for (i in a.indices) {
-            val diff = a[i] - b[i]  // Calculate the difference between corresponding elements
-            sum += diff * diff       // Square the difference and add to the sum
+            val diff = a[i] - b[i]
+            sum += diff * diff
         }
 
-        return sqrt(sum)  // Return the square root of the sum
+        return sqrt(sum)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_last)
 
-
-        //Initialize data for gait score prediction
         val inputData = floatArrayOf(
             leftKneeMinAngles.average().toFloat(),
             leftKneeMaxAngles.average().toFloat(),
@@ -130,7 +88,6 @@ class LastActivity : ComponentActivity()
             rightKneeMaxAngles.average().toFloat() - rightKneeMinAngles.average().toFloat()
         )
 
-        //Load files needed for prediction
         val tfliteModel = FileUtil.loadMappedFile(this, "encoder_model.tflite")
         val interpreter = Interpreter(tfliteModel)
         val scalerMean = loadFloatBinFile(this, "scaler_mean.bin")
@@ -140,25 +97,20 @@ class LastActivity : ComponentActivity()
         val cleanCentroid = loadNpyFloatArray(cleanCentroidStream)
         val impairedCentroid = loadNpyFloatArray(impairedCentroidStream)
 
-        //Make sure no values are smaller than a threshold
-        val minScaleValue = 1e-15f // Define a small threshold for scaler values
+        val minScaleValue = 1e-15f
         val safeScalerScale = scalerScale.map {
             if (it < minScaleValue) minScaleValue else it
         }.toFloatArray()
 
-        //Scale input
         val scaledInput = FloatArray(inputData.size) { i ->
             (inputData[i] - scalerMean[i]) / safeScalerScale[i]
         }
 
-        //make input and output arrays for prediction
         val output = Array(1){FloatArray(2)}
         val input = arrayOf(scaledInput)
 
-        //Predict output
         interpreter.run(input, output)
 
-        //Log check values to see if they look correct
         Log.d("ErrorCheck", "ScalerMean: ${scalerMean.contentToString()}")
         Log.d("ErrorCheck", "ScalerScale: ${scalerScale.contentToString()}")
         Log.d("ErrorCheck", "InputData: ${inputData.contentToString()}")
@@ -167,49 +119,60 @@ class LastActivity : ComponentActivity()
         Log.d("ErrorCheck", "Clean Centroid: ${cleanCentroid.contentToString()} Length: ${cleanCentroid.size}")
         Log.d("ErrorCheck", "Impaired Centroid: ${impairedCentroid.contentToString()} Length: ${impairedCentroid.size}")
 
-        // Calculate the Euclidean distance between the encoded output and the centroids
         val distClean = euclideanDistance(output[0], cleanCentroid)
         val distImpaired = euclideanDistance(output[0], impairedCentroid)
         Log.d("ErrorCheck", "DistClean: $distClean")
         Log.d("ErrorCheck", "DistImpaired: $distImpaired")
 
-
-        // Calculate the gait index
         val gaitIndexUnscaled = 1 - (distClean / (distClean + distImpaired))
-        val gaitIndexScaled = gaitIndexUnscaled * 100  // Scale it from 0 to 100
+        val gaitIndexScaled = gaitIndexUnscaled * 100
 
-        // Print or use the gait index
         Log.d("ErrorCheck", "Gait Index (Unscaled): $gaitIndexUnscaled")
         Log.d("ErrorCheck", "Gait Index (Scaled): $gaitIndexScaled")
 
         println("Gait Index (Unscaled): $gaitIndexUnscaled")
         println("Gait Index (Scaled): $gaitIndexScaled")
 
-        //Update score
-        var scoreTextView = findViewById<TextView>(R.id.score_textview)
+        val scoreTextView = findViewById<TextView>(R.id.score_textview)
         scoreTextView.text = gaitIndexScaled.roundToLong().toString()
+
+        val reviewCheckBox = findViewById<CheckBox>(R.id.professional_review_checkbox)
+        val exportButton = findViewById<Button>(R.id.submit_id_btn)
+
+        exportButton.isEnabled = false
+
+        reviewCheckBox.setOnCheckedChangeListener { _, isChecked ->
+            exportButton.isEnabled = isChecked
+
+            if (!isChecked) {
+                Toast.makeText(
+                    this,
+                    "You must confirm professional review before exporting.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
 
         val chooseGraphBtn = findViewById<Button>(R.id.select_graph_btn)
         val popupMenu = PopupMenu(this, chooseGraphBtn)
         popupMenu.menuInflater.inflate(R.menu.popup_menu_2, popupMenu.menu)
 
-        var hipGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartHip)
-        var kneeGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartKnee)
-        var ankleGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartAnkle)
-        var torsoGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartTorso)
+        val hipGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartHip)
+        val kneeGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartKnee)
+        val ankleGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartAnkle)
+        val torsoGraph = findViewById<com.github.mikephil.charting.charts.LineChart>(R.id.lineChartTorso)
 
         plotLineGraph(kneeGraph, leftKneeAngles, rightKneeAngles, "Left Knee Angles", "Right Knee Angles")
         plotLineGraph(ankleGraph, leftAnkleAngles, rightAnkleAngles, "Left Ankle Angles", "Right Ankle Angles")
         plotLineGraph(hipGraph, leftHipAngles, rightHipAngles, "Left Hip Angles", "Right Hip Angles")
-        plotLineGraph(torsoGraph, torsoAngles, torsoAngles, "Torso Angles", "Torso Angles") // Assuming torso is the same
+        plotLineGraph(torsoGraph, torsoAngles, torsoAngles, "Torso Angles", "Torso Angles")
 
-        popupMenu.setOnMenuItemClickListener { menuItem -> val id = menuItem.itemId
+        popupMenu.setOnMenuItemClickListener { menuItem ->
+            val id = menuItem.itemId
 
             if (id == R.id.menu_hip) {
-                // hip graph
                 val graphHip = findViewById<TextView>(R.id.select_graph_btn)
-                val graphHipName = "HIP GRAPH"
-                graphHip.text = graphHipName
+                graphHip.text = "HIP GRAPH"
 
                 hipGraph.visibility = View.VISIBLE
                 kneeGraph.visibility = View.INVISIBLE
@@ -217,10 +180,8 @@ class LastActivity : ComponentActivity()
                 torsoGraph.visibility = View.INVISIBLE
             }
             else if (id == R.id.menu_knee) {
-                // knee graph
                 val graphKnee = findViewById<TextView>(R.id.select_graph_btn)
-                val graphKneeName = "KNEE GRAPH"
-                graphKnee.text = graphKneeName
+                graphKnee.text = "KNEE GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.VISIBLE
@@ -228,10 +189,8 @@ class LastActivity : ComponentActivity()
                 torsoGraph.visibility = View.INVISIBLE
             }
             else if (id == R.id.menu_ankle) {
-                // ankle graph
                 val graphAnkle = findViewById<TextView>(R.id.select_graph_btn)
-                val graphAnkleName = "ANKLE GRAPH"
-                graphAnkle.text = graphAnkleName
+                graphAnkle.text = "ANKLE GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.INVISIBLE
@@ -239,10 +198,8 @@ class LastActivity : ComponentActivity()
                 torsoGraph.visibility = View.INVISIBLE
             }
             else if (id == R.id.menu_torso){
-                // torso graph
                 val graphTorso = findViewById<TextView>(R.id.select_graph_btn)
-                val graphTorsoName = "TORSO GRAPH"
-                graphTorso.text = graphTorsoName
+                graphTorso.text = "TORSO GRAPH"
 
                 hipGraph.visibility = View.INVISIBLE
                 kneeGraph.visibility = View.INVISIBLE
@@ -256,9 +213,7 @@ class LastActivity : ComponentActivity()
             popupMenu.show()
         }
 
-        //Functionality for exporting CSV files.
-
-        val fileData: List<MutableList<Float>>  = mutableListOf(        //list of all data lists
+        val fileData: List<MutableList<Float>>  = mutableListOf(
             leftHipAngles,
             rightHipAngles,
             leftKneeAngles,
@@ -268,7 +223,7 @@ class LastActivity : ComponentActivity()
             torsoAngles
         )
 
-        val angleNames = listOf(        //list of names used for files
+        val angleNames = listOf(
             "LeftHip",
             "RightHip",
             "LeftKnee",
@@ -278,17 +233,16 @@ class LastActivity : ComponentActivity()
             "Torso"
         )
 
-        val exportButton = findViewById<Button>(R.id.submit_id_btn)
         exportButton.setOnClickListener {
-            for (i in fileData.indices) {       //for-loop iterates through the fileData list and creates a csv file for each of the angle graphs.
+            for (i in fileData.indices) {
                 val fileName = buildString {
                     append(participantId.toString())
                     append("_")
                     append(angleNames[i])
                     append(".csv")
-                }    //filename participantId_angle
+                }
 
-                writeToFile(fileName, fileData[i])                 //write to file is called with file name and placeholder as parameters
+                writeToFile(fileName, fileData[i])
                 renameTo(participantId.toString())
             }
 
@@ -322,7 +276,6 @@ class LastActivity : ComponentActivity()
         help03Btn.setOnClickListener {
             showHelpDialog()
         }
-
     }
 
     private fun showHelpDialog() {
@@ -341,9 +294,8 @@ class LastActivity : ComponentActivity()
         }
     }
 
-    //Function for writing to file
     private fun writeToFile(fileName:String, fileData:MutableList<Float>) {
-        val fileDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) //Directory of the Documents folder is located
+        val fileDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
         val outputFile = File(fileDirectory, fileName)
 
         FileOutputStream(outputFile).use { output ->
@@ -361,19 +313,17 @@ class LastActivity : ComponentActivity()
         }
     }
 
-    //Function for renaming the edited video
     private fun renameTo(participantId:String) {
-        val vidName = buildString {     //String is built to include participant ID in the name
+        val vidName = buildString {
             append(participantId)
             append("_video.mp4")
         }
 
-        val oldFilePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "edited_video.mp4")    //Path of the existing edited video
-        val newFilePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), vidName)                           //New path for the renamed video
+        val oldFilePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "edited_video.mp4")
+        val newFilePath = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), vidName)
 
         editedUri = Uri.fromFile(newFilePath)
 
         oldFilePath.renameTo(newFilePath)
     }
-
 }

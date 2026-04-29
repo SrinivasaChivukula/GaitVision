@@ -50,6 +50,31 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.030"/>
 
+    <TextView
+        android:id="@+id/ai_disclaimer_textview"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="AI-generated gait scores are assistive only and require professional review before clinical use."
+        android:textSize="14sp"
+        android:textColor="@color/black"
+        android:padding="12dp"
+        android:textAlignment="center"
+        app:layout_constraintTop_toBottomOf="@id/select_graph_btn"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:ignore="HardcodedText" />
+
+    <CheckBox
+        android:id="@+id/professional_review_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Reviewed by a professional"
+        android:textSize="16sp"
+        app:layout_constraintTop_toBottomOf="@id/ai_disclaimer_textview"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:ignore="HardcodedText" />
+
     <Button
         android:id="@+id/select_graph_btn"
         android:layout_width="155dp"
