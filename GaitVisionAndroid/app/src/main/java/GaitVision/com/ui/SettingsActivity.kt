@@ -11,6 +11,8 @@ import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.graphics.Color
+import androidx.appcompat.widget.SwitchCompat
+import GaitVision.com.enablePositionSmoothing
 import GaitVision.com.R
 import GaitVision.com.data.PreferencesManager
 
@@ -20,6 +22,7 @@ class SettingsActivity : BaseActivity() {
     private lateinit var etUserName: EditText
     private lateinit var spinnerLanguage: Spinner
     private lateinit var spinnerTheme: Spinner
+    private lateinit var switchPositionSmoothing: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +35,7 @@ class SettingsActivity : BaseActivity() {
 
         initViews()
         setupSpinners()
+        setupAnalysisControls()
         loadSettings()
     }
 
@@ -39,6 +43,7 @@ class SettingsActivity : BaseActivity() {
         etUserName = findViewById(R.id.etUserName)
         spinnerLanguage = findViewById(R.id.spinnerLanguage)
         spinnerTheme = findViewById(R.id.spinnerTheme)
+        switchPositionSmoothing = findViewById(R.id.switchPositionSmoothing)
     }
 
     private fun setupSpinners() {
@@ -106,6 +111,17 @@ class SettingsActivity : BaseActivity() {
         val themePosition = themeAdapter.getPosition(savedTheme)
         if (themePosition >= 0) {
             spinnerTheme.setSelection(themePosition)
+        }
+
+        val smoothingEnabled = preferencesManager.positionSmoothingEnabled
+        switchPositionSmoothing.isChecked = smoothingEnabled
+        enablePositionSmoothing = smoothingEnabled
+    }
+
+    private fun setupAnalysisControls() {
+        switchPositionSmoothing.setOnCheckedChangeListener { _, isChecked ->
+            preferencesManager.positionSmoothingEnabled = isChecked
+            enablePositionSmoothing = isChecked
         }
     }
 

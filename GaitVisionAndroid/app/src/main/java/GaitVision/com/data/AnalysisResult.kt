@@ -45,6 +45,19 @@ data class AnalysisResult(
     val walkingDirection: String? = null,
     val wasFlipped: Boolean = false,
 
+    // Pose-position jitter validation metrics (not used by scoring model)
+    val rawPoseJitter: Float? = null,
+    val smoothedPoseJitter: Float? = null,
+    val poseJitterReductionPct: Float? = null,
+    val rawPoseVelocity: Float? = null,
+    val smoothedPoseVelocity: Float? = null,
+    val poseVelocityRetentionPct: Float? = null,
+    val rawPoseSnapRate: Float? = null,
+    val smoothedPoseSnapRate: Float? = null,
+    val poseSnapReductionPct: Float? = null,
+    val poseConfidenceCoverage: Float? = null,
+    val poseMedianBodyScale: Float? = null,
+
     // 16 Gait Features (individual columns for queryability)
     val cadenceSpm: Float? = null,
     val strideTimeS: Float? = null,

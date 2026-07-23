@@ -28,7 +28,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="GaitVision"
+            android:text="GaitLens"
             android:textColor="@color/white"
             android:textSize="24sp"
             android:textStyle="bold" />
@@ -188,6 +188,58 @@
             app:tint="@color/text_tertiary" />
 
     </LinearLayout>
+    <!-- Multiview Analysis (Side + Back View) -->
+    <LinearLayout
+        android:id="@+id/cardMultiviewAnalysis"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/card_background"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:padding="16dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toBottomOf="@id/cardQuickAnalysis">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_directions_walk_24"
+            app:tint="@color/secondary_teal"
+            android:layout_marginEnd="16dp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Multiview Analysis (Beta)"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Combine side + back view for a fuller gait score"
+                android:textColor="#B0B0B0"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_chevron_right"
+            app:tint="@color/text_tertiary" />
+
+    </LinearLayout>
 
     <!-- Recent Patients Header -->
     <TextView
@@ -201,7 +253,7 @@
         android:textSize="18sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/cardQuickAnalysis" />
+        app:layout_constraintTop_toBottomOf="@id/cardMultiviewAnalysis" />
 
     <!-- Recent Patients List -->
     <androidx.recyclerview.widget.RecyclerView

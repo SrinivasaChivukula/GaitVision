@@ -4,8 +4,13 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 
+import GaitVision.com.gait.GaitConfig
 import GaitVision.com.mediapipe.MediaPipePoseBackend
 import GaitVision.com.mediapipe.PoseFrame
+
+import android.graphics.Color
+import android.graphics.RectF
+import android.graphics.Typeface
 
 /**
  * Renders skeleton wireframe overlay on video frames.
@@ -24,7 +29,7 @@ import GaitVision.com.mediapipe.PoseFrame
  * @param poseFrame Pose detection result with normalized coordinates
  * @return The modified bitmap with skeleton overlay
  */
-fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
+fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?, showLabels: Boolean = true): Bitmap {
     if (poseFrame == null) {
         return bitmap
     }
@@ -32,59 +37,136 @@ fun drawOnBitmapMediaPipe(bitmap: Bitmap, poseFrame: PoseFrame?): Bitmap {
     val width = bitmap.width.toFloat()
     val height = bitmap.height.toFloat()
     val keypoints = poseFrame.keypoints
-    
-    // Helper to get pixel coordinates from normalized keypoint
-    fun getPixelCoords(landmarkIdx: Int): Pair<Float, Float> {
-        val x = keypoints[landmarkIdx][0] * width
-        val y = keypoints[landmarkIdx][1] * height
-        return Pair(x, y)
+
+    val minDimension = minOf(width, height)
+    val confidences = poseFrame.confidences
+    val minConfidence = GaitConfig.MIN_CONFIDENCE
+
+    val leftColor = Color.rgb(0, 122, 255)
+    val rightColor = Color.rgb(255, 59, 48)
+
+    val labelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(190, 0, 0, 0)
+        style = Paint.Style.FILL
     }
-    
-    // Get coordinates for all landmarks we need
-    val (leftHipX, leftHipY) = getPixelCoords(MediaPipePoseBackend.LEFT_HIP)
-    val (rightHipX, rightHipY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HIP)
-    val (leftKneeX, leftKneeY) = getPixelCoords(MediaPipePoseBackend.LEFT_KNEE)
-    val (rightKneeX, rightKneeY) = getPixelCoords(MediaPipePoseBackend.RIGHT_KNEE)
-    val (leftAnkleX, leftAnkleY) = getPixelCoords(MediaPipePoseBackend.LEFT_ANKLE)
-    val (rightAnkleX, rightAnkleY) = getPixelCoords(MediaPipePoseBackend.RIGHT_ANKLE)
-    val (leftHeelX, leftHeelY) = getPixelCoords(MediaPipePoseBackend.LEFT_HEEL)
-    val (rightHeelX, rightHeelY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HEEL)
-    val (leftFootIndexX, leftFootIndexY) = getPixelCoords(MediaPipePoseBackend.LEFT_FOOT_INDEX)
-    val (rightFootIndexX, rightFootIndexY) = getPixelCoords(MediaPipePoseBackend.RIGHT_FOOT_INDEX)
+
+    val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = (minDimension * 0.028f).coerceIn(18f, 34f)
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    fun hasPoint(landmarkIdx: Int): Boolean {
+        val point = keypoints.getOrNull(landmarkIdx) ?: return false
+        if (point.size < 2 || point[0].isNaN() || point[1].isNaN()) return false
+        return confidences.getOrNull(landmarkIdx)?.let { it >= minConfidence } == true
+    }
+
+    fun getPixelCoords(landmarkIdx: Int): Pair<Float, Float> {
+        val point = keypoints[landmarkIdx]
+        return Pair(point[0] * width, point[1] * height)
+    }
 
     // Draw skeleton overlay
     val canvas = Canvas(bitmap)
 
-    val paintCircleRight = Paint().apply { setARGB(255, 255, 0, 0) }
-    val paintCircleLeft = Paint().apply { setARGB(255, 0, 0, 255) }
-    val paintLine = Paint().apply {
-        setARGB(255, 255, 255, 255)
+    val paintCircleRight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = rightColor }
+    val paintCircleLeft = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = leftColor }
+    val paintLineRight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = rightColor
         strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
+    }
+    val paintLineLeft = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = leftColor
+        strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
     }
 
-    // Draw connections
-    canvas.drawLine(rightHipX, rightHipY, rightKneeX, rightKneeY, paintLine)
-    canvas.drawLine(leftHipX, leftHipY, leftKneeX, leftKneeY, paintLine)
-    canvas.drawLine(rightKneeX, rightKneeY, rightAnkleX, rightAnkleY, paintLine)
-    canvas.drawLine(leftKneeX, leftKneeY, leftAnkleX, leftAnkleY, paintLine)
-    canvas.drawLine(rightAnkleX, rightAnkleY, rightFootIndexX, rightFootIndexY, paintLine)
-    canvas.drawLine(leftAnkleX, leftAnkleY, leftFootIndexX, leftFootIndexY, paintLine)
-    canvas.drawLine(rightAnkleX, rightAnkleY, rightHeelX, rightHeelY, paintLine)
-    canvas.drawLine(leftAnkleX, leftAnkleY, leftHeelX, leftHeelY, paintLine)
-    canvas.drawLine(rightHeelX, rightHeelY, rightFootIndexX, rightFootIndexY, paintLine)
-    canvas.drawLine(leftHeelX, leftHeelY, leftFootIndexX, leftFootIndexY, paintLine)
+    fun drawBone(startIdx: Int, endIdx: Int, paint: Paint) {
+        if (!hasPoint(startIdx) || !hasPoint(endIdx)) return
+        val (startX, startY) = getPixelCoords(startIdx)
+        val (endX, endY) = getPixelCoords(endIdx)
+        canvas.drawLine(startX, startY, endX, endY, paint)
+    }
 
-    // Draw points
-    canvas.drawCircle(rightHipX, rightHipY, 4f, paintCircleRight)
-    canvas.drawCircle(leftHipX, leftHipY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightKneeX, rightKneeY, 4f, paintCircleRight)
-    canvas.drawCircle(leftKneeX, leftKneeY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightAnkleX, rightAnkleY, 4f, paintCircleRight)
-    canvas.drawCircle(leftAnkleX, leftAnkleY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightHeelX, rightHeelY, 4f, paintCircleRight)
-    canvas.drawCircle(leftHeelX, leftHeelY, 4f, paintCircleLeft)
-    canvas.drawCircle(rightFootIndexX, rightFootIndexY, 4f, paintCircleRight)
-    canvas.drawCircle(leftFootIndexX, leftFootIndexY, 4f, paintCircleLeft)
+    fun drawPoint(landmarkIdx: Int, paint: Paint) {
+        if (!hasPoint(landmarkIdx)) return
+        val (x, y) = getPixelCoords(landmarkIdx)
+        canvas.drawCircle(x, y, 4f, paint)
+    }
+
+    drawBone(MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.LEFT_KNEE, paintLineLeft)
+    drawBone(MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.LEFT_ANKLE, paintLineLeft)
+    drawBone(MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.LEFT_FOOT_INDEX, paintLineLeft)
+    drawBone(MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.LEFT_HEEL, paintLineLeft)
+    drawBone(MediaPipePoseBackend.LEFT_HEEL, MediaPipePoseBackend.LEFT_FOOT_INDEX, paintLineLeft)
+
+    drawBone(MediaPipePoseBackend.RIGHT_HIP, MediaPipePoseBackend.RIGHT_KNEE, paintLineRight)
+    drawBone(MediaPipePoseBackend.RIGHT_KNEE, MediaPipePoseBackend.RIGHT_ANKLE, paintLineRight)
+    drawBone(MediaPipePoseBackend.RIGHT_ANKLE, MediaPipePoseBackend.RIGHT_FOOT_INDEX, paintLineRight)
+    drawBone(MediaPipePoseBackend.RIGHT_ANKLE, MediaPipePoseBackend.RIGHT_HEEL, paintLineRight)
+    drawBone(MediaPipePoseBackend.RIGHT_HEEL, MediaPipePoseBackend.RIGHT_FOOT_INDEX, paintLineRight)
+
+    drawPoint(MediaPipePoseBackend.LEFT_HIP, paintCircleLeft)
+    drawPoint(MediaPipePoseBackend.LEFT_KNEE, paintCircleLeft)
+    drawPoint(MediaPipePoseBackend.LEFT_ANKLE, paintCircleLeft)
+    drawPoint(MediaPipePoseBackend.LEFT_HEEL, paintCircleLeft)
+    drawPoint(MediaPipePoseBackend.LEFT_FOOT_INDEX, paintCircleLeft)
+
+    drawPoint(MediaPipePoseBackend.RIGHT_HIP, paintCircleRight)
+    drawPoint(MediaPipePoseBackend.RIGHT_KNEE, paintCircleRight)
+    drawPoint(MediaPipePoseBackend.RIGHT_ANKLE, paintCircleRight)
+    drawPoint(MediaPipePoseBackend.RIGHT_HEEL, paintCircleRight)
+    drawPoint(MediaPipePoseBackend.RIGHT_FOOT_INDEX, paintCircleRight)
+
+    fun drawLabel(text: String, x: Float, y: Float, color: Int) {
+        labelTextPaint.color = color
+
+        val paddingX = 8f
+        val paddingY = 5f
+        val textWidth = labelTextPaint.measureText(text)
+
+        val labelX = x.coerceIn(4f, width - textWidth - 12f)
+        val baseline = y.coerceIn(20f, height - 8f)
+
+        val rect = RectF(
+            labelX - paddingX,
+            baseline + labelTextPaint.ascent() - paddingY,
+            labelX + textWidth + paddingX,
+            baseline + labelTextPaint.descent() + paddingY
+        )
+
+        canvas.drawRoundRect(rect, 6f, 6f, labelBackgroundPaint)
+        canvas.drawText(text, labelX, baseline, labelTextPaint)
+    }
+
+    if (showLabels) {
+        if (hasPoint(MediaPipePoseBackend.LEFT_KNEE)) {
+            val (leftKneeX, leftKneeY) = getPixelCoords(MediaPipePoseBackend.LEFT_KNEE)
+            drawLabel("LK", leftKneeX - 30f, leftKneeY - 10f, leftColor)
+        }
+        if (hasPoint(MediaPipePoseBackend.RIGHT_KNEE)) {
+            val (rightKneeX, rightKneeY) = getPixelCoords(MediaPipePoseBackend.RIGHT_KNEE)
+            drawLabel("RK", rightKneeX + 10f, rightKneeY - 10f, rightColor)
+        }
+        if (
+            hasPoint(MediaPipePoseBackend.LEFT_HIP) &&
+            hasPoint(MediaPipePoseBackend.LEFT_KNEE) &&
+            hasPoint(MediaPipePoseBackend.LEFT_ANKLE)
+        ) {
+            val (leftHipX, leftHipY) = getPixelCoords(MediaPipePoseBackend.LEFT_HIP)
+            val (leftAnkleX, leftAnkleY) = getPixelCoords(MediaPipePoseBackend.LEFT_ANKLE)
+            drawLabel("L Leg", (leftHipX + leftAnkleX) / 2f, (leftHipY + leftAnkleY) / 2f, leftColor)
+        }
+        if (
+            hasPoint(MediaPipePoseBackend.RIGHT_HIP) &&
+            hasPoint(MediaPipePoseBackend.RIGHT_KNEE) &&
+            hasPoint(MediaPipePoseBackend.RIGHT_ANKLE)
+        ) {
+            val (rightHipX, rightHipY) = getPixelCoords(MediaPipePoseBackend.RIGHT_HIP)
+            val (rightAnkleX, rightAnkleY) = getPixelCoords(MediaPipePoseBackend.RIGHT_ANKLE)
+            drawLabel("R Leg", (rightHipX + rightAnkleX) / 2f, (rightHipY + rightAnkleY) / 2f, rightColor)
+        }
+    }
 
     return bitmap
 }

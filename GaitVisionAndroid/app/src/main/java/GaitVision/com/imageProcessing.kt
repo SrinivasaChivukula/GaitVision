@@ -21,22 +21,29 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
 
 // MediaPipe Tasks imports
+import GaitVision.com.mediapipe.LegIdentityTracker
 import GaitVision.com.mediapipe.MediaPipePoseBackend
 import GaitVision.com.mediapipe.PoseFrame
 import GaitVision.com.mediapipe.PoseSequence
 import GaitVision.com.mediapipe.MediaPipeResultConverter
+import GaitVision.com.mediapipe.PoseOneEuroSmoother
+import GaitVision.com.mediapipe.ROITracker
 
 // Gait analysis imports
 import GaitVision.com.gait.FeatureExtractor
+import GaitVision.com.gait.GaitConfig
 import GaitVision.com.gait.GaitFeatures
 import GaitVision.com.gait.GaitDiagnostics
 import GaitVision.com.gait.GaitScorer
+import GaitVision.com.gait.PoseJitterAnalyzer
 import GaitVision.com.gait.ScoringResult
 import GaitVision.com.gait.QualityFlag
 
@@ -66,6 +73,8 @@ private var uBytesCache: ByteArray? = null
 private var vBytesCache: ByteArray? = null
 private var pixelsCache: IntArray? = null
 private var bitmapCache: Bitmap? = null
+private val smoothedKps = Array(33) { FloatArray(2) { Float.NaN } }
+private const val KP_EMA_ALPHA = 0.2f
 
 private fun imageToBitmap(image: Image): Bitmap {
     val width = image.width
@@ -177,12 +186,105 @@ fun plotLineGraph(
  * Global MediaPipe backend instance (initialized once per video processing session).
  */
 private var mediaPipeBackend: MediaPipePoseBackend? = null
+private var roiMediaPipeBackend: MediaPipePoseBackend? = null
+
+/**
+ * Tracks leg-label identity across frames. State resets per processing session.
+ * See LegIdentityTracker for the rationale (handles MediaPipe L/R swaps).
+ */
+private val legIdentityTracker = LegIdentityTracker()
+private val adaptiveRoiTracker = ROITracker()
+private val poseSmoother = PoseOneEuroSmoother(
+    minCutoff = GaitConfig.POSITION_SMOOTH_MIN_CUTOFF,
+    beta = GaitConfig.POSITION_SMOOTH_BETA,
+    maxMissStreak = GaitConfig.POSITION_SMOOTH_MAX_MISS_STREAK
+)
+private var previousPoseTimestampS: Float? = null
+
+private class AdaptiveRoiStats {
+    var fullFrameAccepted = 0
+    var highConfidenceBypass = 0
+    var roiAttempted = 0
+    var roiAccepted = 0
+    var roiRejected = 0
+    var roiMissing = 0
+
+    fun reset() {
+        fullFrameAccepted = 0
+        highConfidenceBypass = 0
+        roiAttempted = 0
+        roiAccepted = 0
+        roiRejected = 0
+        roiMissing = 0
+    }
+}
+
+private val adaptiveRoiStats = AdaptiveRoiStats()
+
+private fun resetPoseProcessingState() {
+    synchronized(legIdentityTracker) {
+        legIdentityTracker.reset()
+        adaptiveRoiTracker.reset()
+        adaptiveRoiStats.reset()
+        poseSmoother.reset()
+        previousPoseTimestampS = null
+    }
+}
+
+private fun resetProcessingDiagnostics() {
+    totalClaheTimeMs = 0L
+    totalPureMediaPipeTimeMs = 0L
+    totalRoiMediaPipeTimeMs = 0L
+    totalDownscaleTimeMs = 0L
+    mediaPipeFrameCount = 0
+    roiMediaPipeFrameCount = 0
+}
+
+private fun correctAndMaybeSmoothPose(frame: PoseFrame, fps: Float = detectedFps): Pair<PoseFrame, PoseFrame> {
+    return synchronized(legIdentityTracker) {
+        val corrected = legIdentityTracker.correct(frame)
+        val fallbackDt = 1f / sanitizeFps(fps)
+        val dt = previousPoseTimestampS
+            ?.let { frame.timestampS - it }
+            ?.takeIf { it.isFinite() && it in (1f / 240f)..(1f / 1f) }
+            ?: fallbackDt
+        previousPoseTimestampS = frame.timestampS
+
+        // A confirmed L/R mapping flip teleports each leg slot's trajectory to
+        // the mirror side. Reset those filters so smoothing restarts at the
+        // corrected positions instead of blending across the discontinuity.
+        if (enablePositionSmoothing && legIdentityTracker.mappingFlippedOnLastFrame) {
+            poseSmoother.resetLandmarks(legIdentityTracker.legLandmarkIndices)
+        }
+
+        val output = if (enablePositionSmoothing) {
+            poseSmoother.smooth(
+                frame = corrected,
+                dt = dt,
+                minConfidence = GaitConfig.MIN_CONFIDENCE
+            )
+        } else {
+            corrected
+        }
+        corrected to output
+    }
+}
 
 /**
  * Detected FPS from video metadata (set during frame extraction).
  */
 var detectedFps: Float = 30f
     private set
+
+private fun sanitizeFps(rawFps: Float?): Float {
+    val fps = rawFps ?: 30f
+    return if (fps.isFinite() && fps in 1f..240f) fps else 30f
+}
+
+private fun frameTimestampMs(frameIndex: Int, fps: Float): Long {
+    val safeFps = sanitizeFps(fps)
+    return (frameIndex * 1000.0 / safeFps).roundToLong()
+}
 
 /**
  * Initialize MediaPipe backend for a processing session.
@@ -219,6 +321,26 @@ fun initializeMediaPipeBackend(context: Context) {
     }
 }
 
+private fun getRoiMediaPipeBackend(context: Context): MediaPipePoseBackend? {
+    if (roiMediaPipeBackend == null) {
+        roiMediaPipeBackend = try {
+            MediaPipePoseBackend(
+                context = context,
+                minDetectionConfidence = GaitConfig.MIN_DETECTION_CONFIDENCE,
+                minTrackingConfidence = GaitConfig.MIN_TRACKING_CONFIDENCE,
+                minPresenceConfidence = GaitConfig.MIN_PRESENCE_CONFIDENCE,
+                useGpu = false
+            ).also {
+                Log.d("ImageProcessing", "Adaptive ROI backend initialized with CPU delegate")
+            }
+        } catch (e: Exception) {
+            Log.w("ImageProcessing", "Adaptive ROI backend failed to initialize: ${e.message}")
+            null
+        }
+    }
+    return roiMediaPipeBackend
+}
+
 /**
  * Detect actual FPS from video metadata.
  * Falls back to 30 FPS if detection fails (mirrors PC behavior).
@@ -245,8 +367,9 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
         val fps = frameRateStr?.toFloatOrNull()
         
         if (fps != null && fps > 0) {
-            Log.d("ImageProcessing", "Detected FPS from metadata: $fps")
-            fps
+            val safeFps = sanitizeFps(fps)
+            Log.d("ImageProcessing", "Detected FPS from metadata: $fps (using $safeFps)")
+            safeFps
         } else {
             // Fallback: estimate from duration and frame count
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
@@ -255,7 +378,7 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
             if (videoFrameCount != null && videoFrameCount > 0 && durationMs > 0) {
                 val estimatedFps = (videoFrameCount * 1000f) / durationMs
                 Log.d("ImageProcessing", "Estimated FPS from frame count: $estimatedFps")
-                estimatedFps.coerceIn(15f, 120f)  // Sanity check
+                sanitizeFps(estimatedFps.coerceIn(15f, 120f))
             } else {
                 Log.d("ImageProcessing", "Could not detect FPS, using default 30")
                 30f
@@ -275,7 +398,9 @@ fun detectVideoFps(context: Context, fileUri: Uri?): Float {
 fun releaseMediaPipeBackend() {
     mediaPipeBackend?.release()
     mediaPipeBackend = null
-    Log.d("ImageProcessing", "MediaPipe backend released")
+    roiMediaPipeBackend?.release()
+    roiMediaPipeBackend = null
+    Log.d("ImageProcessing", "MediaPipe backends released")
 }
 
 
@@ -291,17 +416,15 @@ private class EncoderState(
 ) {
     var trackIndex: Int = -1
     var muxerStarted: Boolean = false
+    private var nextPresentationTimeUs: Long = 0L
     
     /**
      * Write a processed bitmap to the encoder and drain output to muxer.
      */
     fun encodeFrame(bitmap: Bitmap, frameIndex: Int) {
-        // Draw to encoder surface
         val canvas = inputSurface.lockCanvas(null)
         canvas.drawBitmap(bitmap, 0f, 0f, null)
         inputSurface.unlockCanvasAndPost(canvas)
-        
-        // Drain encoder output
         drainEncoder(frameIndex)
     }
     
@@ -323,8 +446,7 @@ private class EncoderState(
                 outputId >= 0 -> {
                     val outputBuffer = encoder.getOutputBuffer(outputId) ?: break
                     if (muxerStarted) {
-                        bufferInfo.presentationTimeUs = frameIndex * frameDurationUs
-                        mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+                        writeEncodedSample(outputBuffer)
                     }
                     encoder.releaseOutputBuffer(outputId, false)
                 }
@@ -338,41 +460,86 @@ private class EncoderState(
      */
     fun finishEncoding() {
         encoder.signalEndOfInputStream()
-        // Drain with longer timeout for final frames
         while (true) {
             val outputId = encoder.dequeueOutputBuffer(bufferInfo, 10000)
             if (outputId >= 0) {
                 val outputBuffer = encoder.getOutputBuffer(outputId) ?: break
+                val isEndOfStream = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
                 if (muxerStarted) {
-                    mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+                    writeEncodedSample(outputBuffer)
                 }
                 encoder.releaseOutputBuffer(outputId, false)
+                if (isEndOfStream) break
             } else {
                 break
             }
         }
+    }
+
+    private fun writeEncodedSample(outputBuffer: java.nio.ByteBuffer) {
+        if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+            bufferInfo.size = 0
+        }
+        if (bufferInfo.size <= 0) return
+
+        outputBuffer.position(bufferInfo.offset)
+        outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+        bufferInfo.presentationTimeUs = nextPresentationTimeUs
+        mediaMuxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+        nextPresentationTimeUs += frameDurationUs
     }
     
     /**
      * Release all encoder resources.
      */
     fun release() {
-        encoder.stop()
-        encoder.release()
-        mediaMuxer.stop()
-        mediaMuxer.release()
+        try {
+            encoder.stop()
+        } finally {
+            inputSurface.release()
+            encoder.release()
+            if (muxerStarted) {
+                mediaMuxer.stop()
+            }
+            mediaMuxer.release()
+        }
     }
+}
+
+private fun lowerBodyQuality(frame: PoseFrame?): Float {
+    return adaptiveRoiTracker.lowerBodyQuality(frame?.confidences)
+}
+
+private fun shouldAcceptRoiPose(fullFrame: PoseFrame?, roiFrame: PoseFrame?): Boolean {
+    if (roiFrame == null) return false
+    val fullQuality = lowerBodyQuality(fullFrame)
+    val roiQuality = lowerBodyQuality(roiFrame)
+    return roiQuality >= GaitConfig.MIN_CONFIDENCE &&
+        (fullFrame == null || roiQuality >= fullQuality + GaitConfig.ROI_ACCEPT_QUALITY_MARGIN)
 }
 
 /**
  * Process a single frame: pose detection, wireframe drawing, store pose data.
  * Returns the modified bitmap ready for encoding.
  */
-private fun processFrame(frame: Bitmap, frameIndex: Int): Bitmap {
-    val poseFrame = processFrameWithMediaPipe(frame, frameIndex)
+private fun processFrame(
+    context: Context,
+    frame: Bitmap,
+    frameIndex: Int,
+    presentationTimeUs: Long? = null
+): Bitmap {
+    val rawPoseFrame = processFrameWithAdaptiveRoi(
+        context = context,
+        frame = frame,
+        frameIndex = frameIndex,
+        presentationTimeUs = presentationTimeUs
+    )
+    val poseFrames = rawPoseFrame?.let { correctAndMaybeSmoothPose(it) }
+    val poseFrame = poseFrames?.second
     val modifiedBitmap = drawOnBitmapMediaPipe(frame, poseFrame)
-    if (poseFrame != null) {
-        AnalysisSession.poseFrames.add(poseFrame)
+    if (poseFrames != null) {
+        AnalysisSession.rawPoseFrames.add(poseFrames.first)
+        AnalysisSession.poseFrames.add(poseFrames.second)
     }
     return modifiedBitmap
 }
@@ -380,8 +547,10 @@ private fun processFrame(frame: Bitmap, frameIndex: Int): Bitmap {
 // Timing accumulators for CLAHE vs pure MediaPipe (for diagnostics)
 var totalClaheTimeMs = 0L
 var totalPureMediaPipeTimeMs = 0L
+var totalRoiMediaPipeTimeMs = 0L
 var totalDownscaleTimeMs = 0L
 var mediaPipeFrameCount = 0
+var roiMediaPipeFrameCount = 0
 
 // Processing resolution for CLAHE + MediaPipe (720p for speed, coords are normalized so wireframe works at any res)
 const val PROCESSING_WIDTH = 1280
@@ -402,11 +571,34 @@ const val PROCESSING_HEIGHT = 720
 fun processFrameWithMediaPipe(
     bitmap: Bitmap, 
     frameIdx: Int, 
+    presentationTimeUs: Long? = null,
     fps: Float = detectedFps,
     applyClahe: Boolean = enableCLAHE
 ): PoseFrame? {
     val backend = mediaPipeBackend ?: return null
-    
+
+    val timestampMs = presentationTimeUs
+        ?.let { (it / 1000.0).roundToLong() }
+        ?: frameTimestampMs(frameIdx, fps)
+
+    return processBitmapWithMediaPipe(
+        bitmap = bitmap,
+        frameIdx = frameIdx,
+        timestampMs = timestampMs,
+        backend = backend,
+        applyClahe = applyClahe,
+        countAsRoi = false
+    )
+}
+
+private fun processBitmapWithMediaPipe(
+    bitmap: Bitmap,
+    frameIdx: Int,
+    timestampMs: Long,
+    backend: MediaPipePoseBackend,
+    applyClahe: Boolean,
+    countAsRoi: Boolean
+): PoseFrame? {
     // Always downscale to 720p for inference, MediaPipe internally resizes to ~256x256
     var t0 = System.currentTimeMillis()
     val scaledBitmap = if (bitmap.width > PROCESSING_WIDTH || bitmap.height > PROCESSING_HEIGHT) {
@@ -427,13 +619,16 @@ fun processFrameWithMediaPipe(
         totalClaheTimeMs += System.currentTimeMillis() - t0
     }
     
-    // Calculate timestamp in milliseconds using actual FPS
-    val timestampMs = (frameIdx * 1000L / fps).toLong()
-    
     t0 = System.currentTimeMillis()
     val result = backend.processFrame(processedBitmap, timestampMs)
-    totalPureMediaPipeTimeMs += System.currentTimeMillis() - t0
-    mediaPipeFrameCount++
+    val elapsed = System.currentTimeMillis() - t0
+    if (countAsRoi) {
+        totalRoiMediaPipeTimeMs += elapsed
+        roiMediaPipeFrameCount++
+    } else {
+        totalPureMediaPipeTimeMs += elapsed
+        mediaPipeFrameCount++
+    }
     
     // Recycle intermediate bitmaps that are separate allocations from the input
     if (applyClahe && processedBitmap !== scaledBitmap) {
@@ -447,6 +642,146 @@ fun processFrameWithMediaPipe(
         result = result,
         frameIdx = frameIdx,
         timestampS = timestampMs / 1000f
+    )
+}
+
+private fun processFrameWithAdaptiveRoi(
+    context: Context,
+    frame: Bitmap,
+    frameIndex: Int,
+    presentationTimeUs: Long? = null,
+    fps: Float = detectedFps,
+    applyClahe: Boolean = enableCLAHE
+): PoseFrame? {
+    val timestampMs = presentationTimeUs
+        ?.let { (it / 1000.0).roundToLong() }
+        ?: frameTimestampMs(frameIndex, fps)
+
+    val fullFrame = processFrameWithMediaPipe(
+        bitmap = frame,
+        frameIdx = frameIndex,
+        presentationTimeUs = presentationTimeUs,
+        fps = fps,
+        applyClahe = applyClahe
+    )
+    val fullQuality = lowerBodyQuality(fullFrame)
+    val shouldTryRoi = adaptiveRoiTracker.shouldUseRoi() &&
+        fullQuality < GaitConfig.ROI_HIGH_CONFIDENCE_BYPASS
+
+    var acceptedFrame = fullFrame
+    var decision = "full"
+
+    if (fullQuality >= GaitConfig.ROI_HIGH_CONFIDENCE_BYPASS) {
+        adaptiveRoiStats.highConfidenceBypass++
+    } else if (shouldTryRoi) {
+        adaptiveRoiStats.roiAttempted++
+        val roiFrame = processFrameWithRoi(
+            context = context,
+            frame = frame,
+            frameIndex = frameIndex,
+            timestampMs = timestampMs,
+            applyClahe = applyClahe
+        )
+
+        if (shouldAcceptRoiPose(fullFrame, roiFrame)) {
+            acceptedFrame = roiFrame
+            adaptiveRoiStats.roiAccepted++
+            decision = "roi"
+        } else {
+            if (roiFrame == null) {
+                adaptiveRoiStats.roiMissing++
+            } else {
+                adaptiveRoiStats.roiRejected++
+            }
+        }
+    }
+
+    if (decision == "full") {
+        adaptiveRoiStats.fullFrameAccepted++
+    }
+
+    adaptiveRoiTracker.update(
+        keypoints = acceptedFrame?.keypoints,
+        confidences = acceptedFrame?.confidences,
+        detectionSuccess = acceptedFrame != null
+    )
+
+    if (enableVerboseLogging && frameIndex % 30 == 0) {
+        Log.d(
+            "ImageProcessing",
+            "Adaptive ROI frame=$frameIndex state=${adaptiveRoiTracker.getCurrentState()} " +
+                "decision=$decision fullQ=$fullQuality acceptedQ=${lowerBodyQuality(acceptedFrame)}"
+        )
+    }
+
+    return acceptedFrame
+}
+
+private fun processFrameWithRoi(
+    context: Context,
+    frame: Bitmap,
+    frameIndex: Int,
+    timestampMs: Long,
+    applyClahe: Boolean
+): PoseFrame? {
+    val backend = getRoiMediaPipeBackend(context) ?: return null
+    val roiBounds = adaptiveRoiTracker.getRoiBounds(
+        frameWidth = frame.width,
+        frameHeight = frame.height,
+        useExpanded = adaptiveRoiTracker.shouldUseExpandedRoi()
+    )
+    if (roiBounds.width() >= frame.width && roiBounds.height() >= frame.height) {
+        return null
+    }
+
+    val roiCrop = adaptiveRoiTracker.cropToRoi(frame, roiBounds)
+    return try {
+        processBitmapWithMediaPipe(
+            bitmap = roiCrop.bitmap,
+            frameIdx = frameIndex,
+            timestampMs = timestampMs,
+            backend = backend,
+            applyClahe = applyClahe,
+            countAsRoi = true
+        )?.let { roiPose ->
+            adaptiveRoiTracker.mapPoseFrameToFullFrame(
+                frame = roiPose,
+                roiCrop = roiCrop,
+                frameWidth = frame.width,
+                frameHeight = frame.height
+            )
+        }
+    } finally {
+        if (!roiCrop.bitmap.isRecycled) {
+            roiCrop.bitmap.recycle()
+        }
+    }
+}
+
+private fun logAdaptiveRoiStats(tag: String, totalFrames: Int) {
+    val trackerStats = adaptiveRoiTracker.getStats()
+    val roiAttempted = adaptiveRoiStats.roiAttempted
+    val roiAccepted = adaptiveRoiStats.roiAccepted
+    val roiAcceptPct = if (roiAttempted > 0) {
+        roiAccepted * 100f / roiAttempted
+    } else {
+        0f
+    }
+    val roiProbeAvgMs = if (roiMediaPipeFrameCount > 0) {
+        totalRoiMediaPipeTimeMs.toFloat() / roiMediaPipeFrameCount
+    } else {
+        0f
+    }
+    Log.d(
+        tag,
+        "Adaptive ROI summary: frames=$totalFrames " +
+            "fullAccepted=${adaptiveRoiStats.fullFrameAccepted}, " +
+            "highConfidenceBypass=${adaptiveRoiStats.highConfidenceBypass}, " +
+            "roiAttempted=$roiAttempted, roiAccepted=$roiAccepted " +
+            "(${String.format("%.1f", roiAcceptPct)}%), " +
+            "roiRejected=${adaptiveRoiStats.roiRejected}, roiMissing=${adaptiveRoiStats.roiMissing}, " +
+            "roiProbeFrames=$roiMediaPipeFrameCount, roiProbeAvgMs=${String.format("%.1f", roiProbeAvgMs)}, " +
+            "tracker=$trackerStats"
     )
 }
 
@@ -474,14 +809,20 @@ suspend fun ProcVidEmpty(
     onProgress: ProgressReporter? = null
 ): Uri? {
     val TAG = "ImageProcessing"
+    loadAnalysisOptions(context)
     
     // Clear all data
+    AnalysisSession.rawPoseFrames.clear()
     AnalysisSession.poseFrames.clear()
     AnalysisSession.frameList.clear()
+    smoothedKps.forEach { it.fill(Float.NaN) }
     AnalysisSession.extractedFeatures = null
     AnalysisSession.extractionDiagnostics = null
     AnalysisSession.scoringResult = null
+    AnalysisSession.jitterComparison = null
     AnalysisSession.extractedSignals = null
+    resetPoseProcessingState()
+    resetProcessingDiagnostics()
 
     if (AnalysisSession.galleryUri == null) {
         Log.e(TAG, "No video URI provided")
@@ -561,6 +902,7 @@ suspend fun ProcVidEmpty(
             }
         }
     }
+    fps = sanitizeFps(fps)
     detectedFps = fps
     retriever.release()  // Done with retriever
     
@@ -590,13 +932,13 @@ suspend fun ProcVidEmpty(
     // === Set up video encoder ===
     val mediaMuxer: MediaMuxer
     val encoder: MediaCodec
-    val inputSurface: android.view.Surface
+    val inputSurface: Surface
     
     try {
         mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         val format = MediaFormat.createVideoFormat("video/avc", width, height)
         format.setInteger(MediaFormat.KEY_BIT_RATE, 1000000)
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, fps.toInt())
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, fps.roundToInt().coerceAtLeast(1))
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
         format.setInteger(MediaFormat.KEY_ROTATION, 0)
@@ -615,8 +957,13 @@ suspend fun ProcVidEmpty(
         return null
     }
 
-    val frameDurationUs = (1000000.0 / fps).toLong()
-    val encoderState = EncoderState(encoder, mediaMuxer, inputSurface, frameDurationUs = frameDurationUs)
+    val frameDurationUs = (1_000_000.0 / fps).roundToLong()
+    val encoderState = EncoderState(
+        encoder = encoder,
+        mediaMuxer = mediaMuxer,
+        inputSurface = inputSurface,
+        frameDurationUs = frameDurationUs,
+    )
     val decoderBufferInfo = MediaCodec.BufferInfo()
     var frameIndex = 0
     var inputDone = false
@@ -624,7 +971,7 @@ suspend fun ProcVidEmpty(
     val startTime = System.currentTimeMillis()
     
     Log.d(TAG, "FAST STREAMING: Processing ~$totalFrames frames with MediaCodec")
-    Log.d(TAG, "GPU delegate: ${mediaPipeBackend?.isUsingGpu() ?: false}, CLAHE: $enableCLAHE")
+    Log.d(TAG, "GPU delegate: ${mediaPipeBackend?.isUsingGpu() ?: false}, CLAHE: $enableCLAHE, position smoothing: $enablePositionSmoothing")
 
     // only fire the callback when the integer percent actually changes
     var lastProgress = -1
@@ -681,7 +1028,12 @@ suspend fun ProcVidEmpty(
                             }
                             
                             // Process frame (pose detection + wireframe) and encode
-                            val modifiedBitmap = processFrame(frame, frameIndex)
+                            val modifiedBitmap = processFrame(
+                                context = context,
+                                frame = frame,
+                                frameIndex = frameIndex,
+                                presentationTimeUs = decoderBufferInfo.presentationTimeUs
+                            )
                             encoderState.encodeFrame(modifiedBitmap, frameIndex)
                             // Note: frame/modifiedBitmap is reused via bitmapCache — don't recycle
                             
@@ -717,15 +1069,21 @@ suspend fun ProcVidEmpty(
     onProgress?.invoke("processing", 100)
 
     Log.d(TAG, "FAST STREAMING complete. Processed $frameIndex frames, ${AnalysisSession.poseFrames.size} poses detected")
+    logAdaptiveRoiStats(TAG, frameIndex)
     
     // Feature extraction (uses poseFrames which is small)
     extractGaitFeatures(context, width, height, frameIndex, onProgress)
-    
+
+    // Snapshot pose frames before they get cleared below (multiview flow reads this)
+    AnalysisSession.lastPoseFramesSnapshot = AnalysisSession.poseFrames.toList()
+
     // Free heavy memory now that processing is done
     val frameCount = AnalysisSession.poseFrames.size
+    AnalysisSession.rawPoseFrames.clear()
     AnalysisSession.frameList.clear()
     AnalysisSession.poseFrames.clear()
-    
+    smoothedKps.forEach { it.fill(Float.NaN) }
+
     // Release reusable YUV conversion buffers
     bitmapCache?.recycle()
     bitmapCache = null
@@ -755,11 +1113,26 @@ private suspend fun procVidEmptyFallback(
 ): Uri? {
     val TAG = "ImageProcessing"
     Log.w(TAG, "Using SLOW fallback method (getFrameAtTime)")
-    
+
     // Detect video FPS
     detectedFps = withContext(Dispatchers.IO) {
-        detectVideoFps(context, AnalysisSession.galleryUri)
+        sanitizeFps(detectVideoFps(context, AnalysisSession.galleryUri))
     }
+
+    // Mirror the reset block from ProcVidEmpty — the singleton
+    // legIdentityTracker retains per-video state from any prior run, and
+    // without this reset the first frame of the new video would be classified
+    // against the previous video's prev PoseFrame and swapVotes.
+    AnalysisSession.rawPoseFrames.clear()
+    AnalysisSession.poseFrames.clear()
+    AnalysisSession.frameList.clear()
+    AnalysisSession.extractedFeatures = null
+    AnalysisSession.extractionDiagnostics = null
+    AnalysisSession.scoringResult = null
+    AnalysisSession.jitterComparison = null
+    AnalysisSession.extractedSignals = null
+    resetPoseProcessingState()
+    resetProcessingDiagnostics()
 
     val retriever = MediaMetadataRetriever()
     try {
@@ -777,7 +1150,7 @@ private suspend fun procVidEmptyFallback(
     val videoLengthMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
     val videoLengthUs = videoLengthMs * 1000L
     AnalysisSession.videoLength = videoLengthUs
-    val frameIntervalUs = (1000000L / detectedFps).toLong()
+    val frameIntervalUs = (1_000_000.0 / detectedFps).roundToLong()
     val totalFrames = (videoLengthUs / frameIntervalUs).toInt()
 
     val firstFrame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
@@ -795,7 +1168,7 @@ private suspend fun procVidEmptyFallback(
     val mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     val format = MediaFormat.createVideoFormat("video/avc", width, height).apply {
         setInteger(MediaFormat.KEY_BIT_RATE, 1000000)
-        setInteger(MediaFormat.KEY_FRAME_RATE, detectedFps.toInt())
+        setInteger(MediaFormat.KEY_FRAME_RATE, detectedFps.roundToInt().coerceAtLeast(1))
         setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
     }
@@ -804,7 +1177,12 @@ private suspend fun procVidEmptyFallback(
     val inputSurface = encoder.createInputSurface()
     encoder.start()
     
-    val encoderState = EncoderState(encoder, mediaMuxer, inputSurface, frameDurationUs = frameIntervalUs)
+    val encoderState = EncoderState(
+        encoder = encoder,
+        mediaMuxer = mediaMuxer,
+        inputSurface = inputSurface,
+        frameDurationUs = frameIntervalUs,
+    )
     var frameIndex = 0
     var currTimeUs = 0L
 
@@ -812,7 +1190,12 @@ private suspend fun procVidEmptyFallback(
         val frame = retriever.getFrameAtTime(currTimeUs, MediaMetadataRetriever.OPTION_CLOSEST)
         
         if (frame != null) {
-            val modifiedBitmap = processFrame(frame, frameIndex)
+            val modifiedBitmap = processFrame(
+                context = context,
+                frame = frame,
+                frameIndex = frameIndex,
+                presentationTimeUs = currTimeUs
+            )
             encoderState.encodeFrame(modifiedBitmap, frameIndex)
             frameIndex++
         }
@@ -828,9 +1211,15 @@ private suspend fun procVidEmptyFallback(
     retriever.release()
     releaseMediaPipeBackend()
 
+    logAdaptiveRoiStats(TAG, frameIndex)
+
     onProgress?.invoke("processing", 100)
 
     extractGaitFeatures(context, width, height, frameIndex, onProgress)
+
+    AnalysisSession.rawPoseFrames.clear()
+    AnalysisSession.frameList.clear()
+    AnalysisSession.poseFrames.clear()
 
     val outputFile = File(outputPath)
     onProgress?.invoke("done", 100)
@@ -873,6 +1262,30 @@ private suspend fun extractGaitFeatures(
             numFramesTotal = totalFrames,
             frames = AnalysisSession.poseFrames.toList()
         )
+
+        val rawPoseFrames = AnalysisSession.rawPoseFrames.toList()
+        if (rawPoseFrames.isNotEmpty()) {
+            val rawPoseSequence = PoseSequence(
+                videoId = videoId,
+                fps = fps,
+                frameWidth = frameWidth,
+                frameHeight = frameHeight,
+                numFramesTotal = totalFrames,
+                frames = rawPoseFrames
+            )
+            AnalysisSession.jitterComparison = PoseJitterAnalyzer.compare(
+                raw = rawPoseSequence,
+                smoothed = poseSequence
+            )
+            AnalysisSession.jitterComparison?.let { jitter ->
+                Log.d(
+                    "ImageProcessing",
+                    "Pose jitter: raw=${jitter.raw.jitterSecondDiffNorm}, " +
+                        "smoothed=${jitter.smoothed.jitterSecondDiffNorm}, " +
+                        "reduction=${jitter.jitterReductionPct}%"
+                )
+            }
+        }
         
         // Initialize feature extractor with OPTIMAL_CONFIG
         val featureExtractor = FeatureExtractor()
@@ -942,23 +1355,24 @@ private suspend fun extractGaitFeatures(
 }
 
 /**
- * EXPERIMENTAL/OFF - Reprocess frames with ROI tracking enabled.
+ * LEGACY/OFF - Reprocess frames with ROI tracking enabled after feature failure.
  * 
- * STATUS: Non-functional in current implementation. Do not enable enableROIRetry.
+ * STATUS: Kept disabled. The active ROI path now runs conservatively during
+ * first-pass processing; this retry path still depends on frameList and should
+ * not be enabled unless it is rewritten to re-decode frames.
  * 
  * Mirrors PC pattern where video is re-extracted with use_roi_tracking=True.
  * Uses the ROITracker state machine: ACQUIRE -> TRACK -> EXPAND -> REACQUIRE
  * 
  * KNOWN ISSUE: This function requires frameList to be populated, but the fast
  * MediaCodec path streams frames without storing them. frameList is cleared
- * but never populated, so this function always returns null immediately.
+ * but never populated, so this function returns null in the normal fast path.
  * 
  * TO FIX (future work):
  *   Option A: Store frames during fast path (memory expensive ~500MB for 10s video)
  *   Option B: Re-decode video in this function (slower but correct)
- *   Option C: Implement ROI tracking inline during first pass
  * 
- * @return Pair of (PoseSequence, list of PoseFrames) or null if failed (always null currently)
+ * @return Pair of (PoseSequence, list of PoseFrames) or null if failed
  */
 private suspend fun reprocessWithRoiTracking(
     context: Context,
@@ -968,77 +1382,94 @@ private suspend fun reprocessWithRoiTracking(
     fps: Float,
     onProgress: ProgressReporter? = null
 ): Pair<PoseSequence, List<PoseFrame>>? {
-    // BUG: frameList is always empty in fast path - see docstring above
+    // frameList is empty in the fast path - see docstring above
     if (AnalysisSession.frameList.isEmpty()) return null
-    
+
     val backend = mediaPipeBackend ?: return null
     val roiTracker = GaitVision.com.mediapipe.ROITracker()
-    
+
+    // Reset the leg-identity tracker so the ROI pass produces a consistent
+    // L/R labelling within itself (and matches the first pass's convention).
+    // The singleton tracker would otherwise still hold the last video's state
+    // when this path is (re)enabled.
+    resetPoseProcessingState()
+
     val roiPoseFrames = mutableListOf<PoseFrame>()
     var useRoi = false
     var useExpanded = false
     val listSize = AnalysisSession.frameList.size
-    
+
     Log.d("ImageProcessing", "Reprocessing ${AnalysisSession.frameList.size} frames with ROI tracking...")
-    
+
     for ((frameIndex, frame) in AnalysisSession.frameList.withIndex()) {
         val progress = ((frameIndex + 1) * 100 / listSize)
         onProgress?.invoke("retry", progress)
-        val timestampMs = (frameIndex * 1000L / fps).toLong()
-        
+        val timestampMs = frameTimestampMs(frameIndex, fps)
+
         // Determine processing region based on ROI state machine
+        var roiCrop: ROITracker.RoiCrop? = null
         val processedBitmap = if (useRoi) {
             val roiBounds = roiTracker.getRoiBounds(frameWidth, frameHeight, useExpanded)
             if (roiBounds.width() < frameWidth || roiBounds.height() < frameHeight) {
                 // Crop to ROI
-                roiTracker.cropToRoi(frame, roiBounds)
+                roiCrop = roiTracker.cropToRoi(frame, roiBounds)
+                roiCrop!!.bitmap
             } else {
                 frame
             }
         } else {
             frame
         }
-        
+
         // Apply CLAHE if enabled
         val enhancedBitmap = if (enableCLAHE) {
             backend.applyCLAHE(processedBitmap)
         } else {
             processedBitmap
         }
-        
+
         // Process frame
         val result = backend.processFrame(enhancedBitmap, timestampMs)
         val detectionSuccess = result != null && result.landmarks().isNotEmpty()
-        
+
         if (detectionSuccess) {
             val landmarks = result!!.landmarks()[0]
-            
-            var keypoints = Array(33) { i ->
+
+            val keypoints = Array(33) { i ->
                 floatArrayOf(landmarks[i].x(), landmarks[i].y())
             }
             val confidences = FloatArray(33) { i ->
                 landmarks[i].visibility().orElse(0f)
             }
-            
-            // Map keypoints back to full frame if using ROI
-            if (useRoi) {
-                val roiBounds = roiTracker.getRoiBounds(frameWidth, frameHeight, useExpanded)
-                if (roiBounds.width() < frameWidth || roiBounds.height() < frameHeight) {
-                    keypoints = roiTracker.mapKeypointsToFullFrame(
-                        keypoints, roiBounds, frameWidth, frameHeight
-                    )
-                }
-            }
-            
-            roiPoseFrames.add(PoseFrame(
+
+            val roiPoseFrame = PoseFrame(
                 frameIdx = frameIndex,
                 timestampS = timestampMs / 1000f,
                 keypoints = keypoints,
                 confidences = confidences
-            ))
-            
+            )
+            val rawPoseFrame = roiCrop?.let {
+                roiTracker.mapPoseFrameToFullFrame(
+                    frame = roiPoseFrame,
+                    roiCrop = it,
+                    frameWidth = frameWidth,
+                    frameHeight = frameHeight
+                )
+            } ?: roiPoseFrame
+
+            // Run through LegIdentityTracker so the ROI sequence shares the
+            // same L/R convention as the first pass — otherwise downstream
+            // normalizeDirection / stride metrics would see inconsistent
+            // labels within a single session.
+            val poseFrame = correctAndMaybeSmoothPose(rawPoseFrame, fps).second
+            roiPoseFrames.add(poseFrame)
+
             // Update ROI state machine
-            val (nextUseRoi, nextUseExpanded) = roiTracker.update(keypoints, confidences, true)
+            val (nextUseRoi, nextUseExpanded) = roiTracker.update(
+                rawPoseFrame.keypoints,
+                rawPoseFrame.confidences,
+                true
+            )
             useRoi = nextUseRoi
             useExpanded = nextUseExpanded
         } else {
@@ -1047,8 +1478,11 @@ private suspend fun reprocessWithRoiTracking(
             useRoi = nextUseRoi
             useExpanded = nextUseExpanded
         }
+        if (processedBitmap !== frame && !processedBitmap.isRecycled) {
+            processedBitmap.recycle()
+        }
     }
-    
+
     // Log ROI stats
     val stats = roiTracker.getStats()
     if (stats.isNotEmpty()) {
@@ -1056,9 +1490,9 @@ private suspend fun reprocessWithRoiTracking(
                 "track=${stats["track_pct"]}% expand=${stats["expand_pct"]}% " +
                 "reacquire=${stats["reacquire_pct"]}% (reacquires=${stats["reacquire_count"]})")
     }
-    
+
     if (roiPoseFrames.isEmpty()) return null
-    
+
     val videoId = AnalysisSession.galleryUri?.lastPathSegment ?: "unknown"
     val roiSequence = PoseSequence(
         videoId = "${videoId}_roi",
@@ -1068,8 +1502,8 @@ private suspend fun reprocessWithRoiTracking(
         numFramesTotal = totalFrames,
         frames = roiPoseFrames
     )
-    
+
     Log.d("ImageProcessing", "ROI reprocessing complete: ${roiPoseFrames.size}/$totalFrames frames detected")
-    
+
     return Pair(roiSequence, roiPoseFrames)
 }

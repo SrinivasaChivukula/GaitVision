@@ -95,25 +95,31 @@ class FeatureExtractor(
         }
         
         // =====================================================================
-        // FULL PIPELINE DEBUG - Compare with PC (controlled by enableVerboseLogging)
-        // =====================================================================
+        // FULL PIPELINE DEBUG - Compare with PC (controlled by enableVerboseLogging) // =====================================================================
         
         // Step 1: Compute signals
         var signals = computeSignals(poseSeq)
         
-        // Step 2: Interpolate gaps
+        // Step 2: Drop isolated angle spikes before interpolation.
+        // MediaPipe can briefly put a knee/ankle landmark on the wrong edge of
+        // the silhouette without changing L/R identity. Those single-frame
+        // cliffs look exactly like the dashboard jitter users report; converting
+        // them to short gaps lets interpolation/EMA handle them as uncertainty.
+        signals = removeSignalOutliers(signals)
+        
+        // Step 3: Interpolate gaps
         signals = interpolateSignals(signals)
         
-        // Step 3: Light smoothing
+        // Step 4: Segment-aware smoothing
         signals = smoothSignals(signals)
         
-        // Step 4: Compute velocities
+        // Step 5: Compute velocities
         signals = computeVelocities(signals, poseSeq.fps)
-        
-        // Step 5: Determine near leg
+
+        // Step 6: Determine near leg
         val nearLeg = determineNearLeg(poseSeq)
         
-        // Step 6: Multi-mode step detection
+        // Step 7: Multi-mode step detection
         val (stepMode, stepSignal, modeScores) = selectStepSignalMode(signals, poseSeq, nearLeg, poseSeq.fps)
         val steps = detectStepsFromSignal(stepSignal, poseSeq.fps)
         Log.d(TAG, "Step signal mode: ${stepMode.value}, detected ${steps.size} steps")
@@ -332,12 +338,18 @@ class FeatureExtractor(
         val hipAngleLeft = FloatArray(n) { Float.NaN }
         val hipAngleRight = FloatArray(n) { Float.NaN }
         val strideAngle = FloatArray(n) { Float.NaN }
+        val frontalKneeOffsetLeft = FloatArray(n) { Float.NaN }
+        val frontalKneeOffsetRight = FloatArray(n) { Float.NaN }
         
         // Positions
         val ankleLeftX = FloatArray(n) { Float.NaN }
         val ankleRightX = FloatArray(n) { Float.NaN }
         val ankleLeftY = FloatArray(n) { Float.NaN }
         val ankleRightY = FloatArray(n) { Float.NaN }
+        val kneeLeftX = FloatArray(n) { Float.NaN }
+        val kneeRightX = FloatArray(n) { Float.NaN }
+        val kneeLeftY = FloatArray(n) { Float.NaN }
+        val kneeRightY = FloatArray(n) { Float.NaN }
         val hipLeftY = FloatArray(n) { Float.NaN }
         val hipRightY = FloatArray(n) { Float.NaN }
         
@@ -352,72 +364,134 @@ class FeatureExtractor(
             }
             isValid[idx] = coreValid
             
-            if (!coreValid) continue
-            
             val kp = frame.keypoints
+            val conf = frame.confidences
             
             // Positions
-            ankleLeftX[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][0]
-            ankleRightX[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][0]
-            interAnkleDist[idx] = abs(kp[MediaPipePoseBackend.RIGHT_ANKLE][0] - kp[MediaPipePoseBackend.LEFT_ANKLE][0])
-            ankleLeftY[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][1]
-            ankleRightY[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][1]
-            hipLeftY[idx] = kp[MediaPipePoseBackend.LEFT_HIP][1]
-            hipRightY[idx] = kp[MediaPipePoseBackend.RIGHT_HIP][1]
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_ANKLE)) {
+                ankleLeftX[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][0]
+                ankleLeftY[idx] = kp[MediaPipePoseBackend.LEFT_ANKLE][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_ANKLE)) {
+                ankleRightX[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][0]
+                ankleRightY[idx] = kp[MediaPipePoseBackend.RIGHT_ANKLE][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_KNEE)) {
+                kneeLeftX[idx] = kp[MediaPipePoseBackend.LEFT_KNEE][0]
+                kneeLeftY[idx] = kp[MediaPipePoseBackend.LEFT_KNEE][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_KNEE)) {
+                kneeRightX[idx] = kp[MediaPipePoseBackend.RIGHT_KNEE][0]
+                kneeRightY[idx] = kp[MediaPipePoseBackend.RIGHT_KNEE][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.RIGHT_ANKLE)) {
+                interAnkleDist[idx] = abs(kp[MediaPipePoseBackend.RIGHT_ANKLE][0] - kp[MediaPipePoseBackend.LEFT_ANKLE][0])
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_HIP)) {
+                hipLeftY[idx] = kp[MediaPipePoseBackend.LEFT_HIP][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_HIP)) {
+                hipRightY[idx] = kp[MediaPipePoseBackend.RIGHT_HIP][1]
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.LEFT_ANKLE)) {
+                frontalKneeOffsetLeft[idx] = computeFrontalKneeOffset(
+                    kp[MediaPipePoseBackend.LEFT_HIP],
+                    kp[MediaPipePoseBackend.LEFT_KNEE],
+                    kp[MediaPipePoseBackend.LEFT_ANKLE]
+                )
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_HIP, MediaPipePoseBackend.RIGHT_KNEE, MediaPipePoseBackend.RIGHT_ANKLE)) {
+                frontalKneeOffsetRight[idx] = computeFrontalKneeOffset(
+                    kp[MediaPipePoseBackend.RIGHT_HIP],
+                    kp[MediaPipePoseBackend.RIGHT_KNEE],
+                    kp[MediaPipePoseBackend.RIGHT_ANKLE]
+                )
+            }
             
             // Knee angles (hip-knee-ankle) - used in features
-            kneeAngleLeft[idx] = computeAngle(
-                kp[MediaPipePoseBackend.LEFT_HIP],
-                kp[MediaPipePoseBackend.LEFT_KNEE],
-                kp[MediaPipePoseBackend.LEFT_ANKLE]
-            )
-            kneeAngleRight[idx] = computeAngle(
-                kp[MediaPipePoseBackend.RIGHT_HIP],
-                kp[MediaPipePoseBackend.RIGHT_KNEE],
-                kp[MediaPipePoseBackend.RIGHT_ANKLE]
-            )
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.LEFT_ANKLE)) {
+                kneeAngleLeft[idx] = computeAngle(
+                    kp[MediaPipePoseBackend.LEFT_HIP],
+                    kp[MediaPipePoseBackend.LEFT_KNEE],
+                    kp[MediaPipePoseBackend.LEFT_ANKLE]
+                )
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_HIP, MediaPipePoseBackend.RIGHT_KNEE, MediaPipePoseBackend.RIGHT_ANKLE)) {
+                kneeAngleRight[idx] = computeAngle(
+                    kp[MediaPipePoseBackend.RIGHT_HIP],
+                    kp[MediaPipePoseBackend.RIGHT_KNEE],
+                    kp[MediaPipePoseBackend.RIGHT_ANKLE]
+                )
+            }
             
             // Trunk angle - used in features
-            val midShoulder = floatArrayOf(
-                (kp[MediaPipePoseBackend.LEFT_SHOULDER][0] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][0]) / 2f,
-                (kp[MediaPipePoseBackend.LEFT_SHOULDER][1] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][1]) / 2f
+            val hasTrunkConfidence = hasConfidence(
+                conf,
+                MediaPipePoseBackend.LEFT_SHOULDER,
+                MediaPipePoseBackend.RIGHT_SHOULDER,
+                MediaPipePoseBackend.LEFT_HIP,
+                MediaPipePoseBackend.RIGHT_HIP
             )
-            val midHip = floatArrayOf(
-                (kp[MediaPipePoseBackend.LEFT_HIP][0] + kp[MediaPipePoseBackend.RIGHT_HIP][0]) / 2f,
-                (kp[MediaPipePoseBackend.LEFT_HIP][1] + kp[MediaPipePoseBackend.RIGHT_HIP][1]) / 2f
-            )
-            trunkAngle[idx] = computeTrunkLean(midShoulder, midHip)
+            val midShoulder = if (hasTrunkConfidence) {
+                floatArrayOf(
+                    (kp[MediaPipePoseBackend.LEFT_SHOULDER][0] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][0]) / 2f,
+                    (kp[MediaPipePoseBackend.LEFT_SHOULDER][1] + kp[MediaPipePoseBackend.RIGHT_SHOULDER][1]) / 2f
+                )
+            } else {
+                null
+            }
+            val midHip = if (hasConfidence(conf, MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.RIGHT_HIP)) {
+                floatArrayOf(
+                    (kp[MediaPipePoseBackend.LEFT_HIP][0] + kp[MediaPipePoseBackend.RIGHT_HIP][0]) / 2f,
+                    (kp[MediaPipePoseBackend.LEFT_HIP][1] + kp[MediaPipePoseBackend.RIGHT_HIP][1]) / 2f
+                )
+            } else {
+                null
+            }
+            if (midShoulder != null && midHip != null) {
+                trunkAngle[idx] = computeTrunkLean(midShoulder, midHip)
+            }
             
             // Ankle angles (foot-ankle-knee) - visualization only
-            ankleAngleLeft[idx] = computeAngle(
-                kp[MediaPipePoseBackend.LEFT_FOOT_INDEX],
-                kp[MediaPipePoseBackend.LEFT_ANKLE],
-                kp[MediaPipePoseBackend.LEFT_KNEE]
-            ) - 90f  // Offset like original: 0° = foot flat
-            ankleAngleRight[idx] = computeAngle(
-                kp[MediaPipePoseBackend.RIGHT_FOOT_INDEX],
-                kp[MediaPipePoseBackend.RIGHT_ANKLE],
-                kp[MediaPipePoseBackend.RIGHT_KNEE]
-            ) - 90f
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_FOOT_INDEX, MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.LEFT_KNEE)) {
+                ankleAngleLeft[idx] = computeAngle(
+                    kp[MediaPipePoseBackend.LEFT_FOOT_INDEX],
+                    kp[MediaPipePoseBackend.LEFT_ANKLE],
+                    kp[MediaPipePoseBackend.LEFT_KNEE]
+                ) - 90f  // Offset like original: 0° = foot flat
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_FOOT_INDEX, MediaPipePoseBackend.RIGHT_ANKLE, MediaPipePoseBackend.RIGHT_KNEE)) {
+                ankleAngleRight[idx] = computeAngle(
+                    kp[MediaPipePoseBackend.RIGHT_FOOT_INDEX],
+                    kp[MediaPipePoseBackend.RIGHT_ANKLE],
+                    kp[MediaPipePoseBackend.RIGHT_KNEE]
+                ) - 90f
+            }
             
             // Hip angles (knee-hip-shoulder) - visualization only
-            hipAngleLeft[idx] = 180f - computeAngle(
-                kp[MediaPipePoseBackend.LEFT_KNEE],
-                kp[MediaPipePoseBackend.LEFT_HIP],
-                kp[MediaPipePoseBackend.LEFT_SHOULDER]
-            )
-            hipAngleRight[idx] = 180f - computeAngle(
-                kp[MediaPipePoseBackend.RIGHT_KNEE],
-                kp[MediaPipePoseBackend.RIGHT_HIP],
-                kp[MediaPipePoseBackend.RIGHT_SHOULDER]
-            )
+            if (hasConfidence(conf, MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.LEFT_SHOULDER)) {
+                hipAngleLeft[idx] = 180f - computeAngle(
+                    kp[MediaPipePoseBackend.LEFT_KNEE],
+                    kp[MediaPipePoseBackend.LEFT_HIP],
+                    kp[MediaPipePoseBackend.LEFT_SHOULDER]
+                )
+            }
+            if (hasConfidence(conf, MediaPipePoseBackend.RIGHT_KNEE, MediaPipePoseBackend.RIGHT_HIP, MediaPipePoseBackend.RIGHT_SHOULDER)) {
+                hipAngleRight[idx] = 180f - computeAngle(
+                    kp[MediaPipePoseBackend.RIGHT_KNEE],
+                    kp[MediaPipePoseBackend.RIGHT_HIP],
+                    kp[MediaPipePoseBackend.RIGHT_SHOULDER]
+                )
+            }
             
             // Stride angle (left heel - hip center - right heel) - visualization only
-            strideAngle[idx] = computeAngle(
-                kp[MediaPipePoseBackend.LEFT_HEEL],
-                midHip,
-                kp[MediaPipePoseBackend.RIGHT_HEEL]
-            )
+            if (midHip != null && hasConfidence(conf, MediaPipePoseBackend.LEFT_HEEL, MediaPipePoseBackend.RIGHT_HEEL)) {
+                strideAngle[idx] = computeAngle(
+                    kp[MediaPipePoseBackend.LEFT_HEEL],
+                    midHip,
+                    kp[MediaPipePoseBackend.RIGHT_HEEL]
+                )
+            }
         }
         
         return Signals(
@@ -433,10 +507,16 @@ class FeatureExtractor(
             hipAngleLeft = hipAngleLeft,
             hipAngleRight = hipAngleRight,
             strideAngle = strideAngle,
+            frontalKneeOffsetLeft = frontalKneeOffsetLeft,
+            frontalKneeOffsetRight = frontalKneeOffsetRight,
             ankleLeftX = ankleLeftX,
             ankleRightX = ankleRightX,
             ankleLeftY = ankleLeftY,
             ankleRightY = ankleRightY,
+            kneeLeftX = kneeLeftX,
+            kneeRightX = kneeRightX,
+            kneeLeftY = kneeLeftY,
+            kneeRightY = kneeRightY,
             hipLeftY = hipLeftY,
             hipRightY = hipRightY,
             ankleLeftVy = FloatArray(n) { Float.NaN },
@@ -444,6 +524,20 @@ class FeatureExtractor(
             hipAvgVy = FloatArray(n) { Float.NaN }
         )
     }
+
+    private fun hasConfidence(confidences: FloatArray, vararg keypoints: Int): Boolean {
+        return keypoints.all { kp -> confidences.getOrNull(kp)?.let { it >= minConfidence } == true }
+    }
+
+    /**
+     * Safe single-landmark confidence read. Returns 0f for out-of-range indices
+     * instead of throwing — MediaPipe variants can return fewer than 33 slots,
+     * and step detection reads confidence in hot loops where a defensive
+     * fallback is preferable to a per-frame crash. Mirrors the bounds-safe
+     * access used in [GaitVision.com.mediapipe.ROITracker].
+     */
+    private fun confidenceAt(confidences: FloatArray, idx: Int): Float =
+        confidences.getOrNull(idx) ?: 0f
     
     private fun computeAngle(p1: FloatArray, p2: FloatArray, p3: FloatArray): Float {
         val v1x = p1[0] - p2[0]
@@ -464,20 +558,90 @@ class FeatureExtractor(
         val dy = midShoulder[1] - midHip[1]
         return Math.toDegrees(atan2(dx, -dy).toDouble()).toFloat()
     }
+
+    private fun computeFrontalKneeOffset(hip: FloatArray, knee: FloatArray, ankle: FloatArray): Float {
+        val axisX = ankle[0] - hip[0]
+        val axisY = ankle[1] - hip[1]
+        val kneeX = knee[0] - hip[0]
+        val kneeY = knee[1] - hip[1]
+        val axisLen = sqrt(axisX * axisX + axisY * axisY)
+        if (axisLen < 1e-6f) return Float.NaN
+
+        return (axisX * kneeY - axisY * kneeX) / axisLen
+    }
     
     // =========================================================================
     // Signal Processing
     // =========================================================================
+
+    private fun removeSignalOutliers(signals: Signals): Signals {
+        removeIsolatedSpikes(signals.kneeAngleLeft, radius = 2, minAbsDeviation = 10f)
+        removeIsolatedSpikes(signals.kneeAngleRight, radius = 2, minAbsDeviation = 10f)
+        removeIsolatedSpikes(signals.trunkAngle, radius = 2, minAbsDeviation = 8f)
+        removeIsolatedSpikes(signals.ankleAngleLeft, radius = 2, minAbsDeviation = 14f)
+        removeIsolatedSpikes(signals.ankleAngleRight, radius = 2, minAbsDeviation = 14f)
+        removeIsolatedSpikes(signals.hipAngleLeft, radius = 2, minAbsDeviation = 10f)
+        removeIsolatedSpikes(signals.hipAngleRight, radius = 2, minAbsDeviation = 10f)
+        removeIsolatedSpikes(signals.strideAngle, radius = 2, minAbsDeviation = 12f)
+        return signals
+    }
+
+    private fun removeIsolatedSpikes(
+        signal: FloatArray,
+        radius: Int,
+        minAbsDeviation: Float,
+        thresholdMad: Float = 3.5f
+    ) {
+        val cleaned = signal.copyOf()
+        for (i in signal.indices) {
+            val value = signal[i]
+            if (value.isNaN()) continue
+
+            val neighbors = mutableListOf<Float>()
+            val start = maxOf(0, i - radius)
+            val end = minOf(signal.size - 1, i + radius)
+            for (j in start..end) {
+                if (j == i || signal[j].isNaN()) continue
+                neighbors.add(signal[j])
+            }
+            if (neighbors.size < 3) continue
+
+            val sortedNeighbors = neighbors.sorted()
+            val median = percentile(sortedNeighbors, 50f)
+            val deviations = sortedNeighbors.map { abs(it - median) }.sorted()
+            val mad = percentile(deviations, 50f).coerceAtLeast(0.5f)
+            val absDeviation = abs(value - median)
+
+            if (absDeviation >= minAbsDeviation && absDeviation > thresholdMad * mad) {
+                cleaned[i] = Float.NaN
+            }
+        }
+
+        for (i in signal.indices) {
+            signal[i] = cleaned[i]
+        }
+    }
     
     private fun interpolateSignals(signals: Signals): Signals {
         interpolateArray(signals.interAnkleDist, maxInterpGap)
         interpolateArray(signals.kneeAngleLeft, maxInterpGap)
         interpolateArray(signals.kneeAngleRight, maxInterpGap)
         interpolateArray(signals.trunkAngle, maxInterpGap)
+        interpolateArray(signals.ankleAngleLeft, maxInterpGap)
+        interpolateArray(signals.ankleAngleRight, maxInterpGap)
+        interpolateArray(signals.hipAngleLeft, maxInterpGap)
+        interpolateArray(signals.hipAngleRight, maxInterpGap)
+        interpolateArray(signals.strideAngle, maxInterpGap)
+        interpolateArray(signals.frontalKneeOffsetLeft, maxInterpGap)
+        interpolateArray(signals.frontalKneeOffsetRight, maxInterpGap)
         interpolateArray(signals.ankleLeftX, maxInterpGap)
         interpolateArray(signals.ankleRightX, maxInterpGap)
         interpolateArray(signals.ankleLeftY, maxInterpGap)
         interpolateArray(signals.ankleRightY, maxInterpGap)
+        interpolateArray(signals.kneeLeftX, maxInterpGap)
+        interpolateArray(signals.kneeRightX, maxInterpGap)
+        interpolateArray(signals.kneeLeftY, maxInterpGap)
+        interpolateArray(signals.kneeRightY, maxInterpGap)
         interpolateArray(signals.hipLeftY, maxInterpGap)
         interpolateArray(signals.hipRightY, maxInterpGap)
         return signals
@@ -512,14 +676,56 @@ class FeatureExtractor(
     
     private fun smoothSignals(signals: Signals): Signals {
         emaSmoothGapAware(signals.interAnkleDist, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.kneeAngleLeft, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.kneeAngleRight, emaAlpha, maxInterpGap)
-        emaSmoothGapAware(signals.trunkAngle, emaAlpha, maxInterpGap)
+        smoothAngleSignal(signals.kneeAngleLeft, alpha = 0.32f)
+        smoothAngleSignal(signals.kneeAngleRight, alpha = 0.32f)
+        smoothAngleSignal(signals.trunkAngle, alpha = 0.40f)
+        smoothAngleSignal(signals.ankleAngleLeft, alpha = 0.36f)
+        smoothAngleSignal(signals.ankleAngleRight, alpha = 0.36f)
+        smoothAngleSignal(signals.hipAngleLeft, alpha = 0.36f)
+        smoothAngleSignal(signals.hipAngleRight, alpha = 0.36f)
+        smoothAngleSignal(signals.strideAngle, alpha = 0.36f)
+        emaSmoothGapAware(signals.frontalKneeOffsetLeft, emaAlpha, maxInterpGap)
+        emaSmoothGapAware(signals.frontalKneeOffsetRight, emaAlpha, maxInterpGap)
         emaSmoothGapAware(signals.ankleLeftY, emaAlpha, maxInterpGap)
         emaSmoothGapAware(signals.ankleRightY, emaAlpha, maxInterpGap)
+        emaSmoothGapAware(signals.kneeLeftX, emaAlpha, maxInterpGap)
+        emaSmoothGapAware(signals.kneeRightX, emaAlpha, maxInterpGap)
+        emaSmoothGapAware(signals.kneeLeftY, emaAlpha, maxInterpGap)
+        emaSmoothGapAware(signals.kneeRightY, emaAlpha, maxInterpGap)
         emaSmoothGapAware(signals.hipLeftY, emaAlpha, maxInterpGap)
         emaSmoothGapAware(signals.hipRightY, emaAlpha, maxInterpGap)
         return signals
+    }
+
+    private fun smoothAngleSignal(signal: FloatArray, alpha: Float) {
+        medianSmooth(signal, radius = 2)
+        forwardBackwardEmaSmooth(signal, alpha.coerceAtMost(emaAlpha), maxInterpGap)
+    }
+
+    private fun medianSmooth(signal: FloatArray, radius: Int) {
+        val source = signal.copyOf()
+        for (i in signal.indices) {
+            if (source[i].isNaN()) continue
+
+            val window = mutableListOf<Float>()
+            val start = maxOf(0, i - radius)
+            val end = minOf(signal.size - 1, i + radius)
+            for (j in start..end) {
+                if (!source[j].isNaN()) {
+                    window.add(source[j])
+                }
+            }
+            if (window.size >= 3) {
+                signal[i] = percentile(window.sorted(), 50f)
+            }
+        }
+    }
+
+    private fun forwardBackwardEmaSmooth(arr: FloatArray, alpha: Float, maxBridgeGap: Int) {
+        emaSmoothGapAware(arr, alpha, maxBridgeGap)
+        arr.reverse()
+        emaSmoothGapAware(arr, alpha, maxBridgeGap)
+        arr.reverse()
     }
     
     /**
@@ -604,12 +810,15 @@ class FeatureExtractor(
         var rightConfSum = 0f
         
         for (frame in poseSeq.frames) {
-            val leftConf = (frame.confidences[MediaPipePoseBackend.LEFT_HIP] +
-                    frame.confidences[MediaPipePoseBackend.LEFT_KNEE] +
-                    frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]) / 3f
-            val rightConf = (frame.confidences[MediaPipePoseBackend.RIGHT_HIP] +
-                    frame.confidences[MediaPipePoseBackend.RIGHT_KNEE] +
-                    frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]) / 3f
+            val conf = frame.confidences
+            val leftConf = (
+                confidenceAt(conf, MediaPipePoseBackend.LEFT_HIP) +
+                confidenceAt(conf, MediaPipePoseBackend.LEFT_KNEE) +
+                confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE)) / 3f
+            val rightConf = (
+                confidenceAt(conf, MediaPipePoseBackend.RIGHT_HIP) +
+                confidenceAt(conf, MediaPipePoseBackend.RIGHT_KNEE) +
+                confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE)) / 3f
             leftConfSum += leftConf
             rightConfSum += rightConf
         }
@@ -623,7 +832,7 @@ class FeatureExtractor(
         mode: StepSignalMode
     ): FloatArray {
         val n = poseSeq.numFramesTotal
-        val minConf = 0.15f
+        val minConf = GaitConfig.STEP_DETECT_MIN_CONF
         
         return when (mode) {
             StepSignalMode.INTER_ANKLE -> {
@@ -635,11 +844,14 @@ class FeatureExtractor(
                 val ankleRightY = FloatArray(n) { Float.NaN }
                 
                 for (frame in poseSeq.frames) {
-                    if (frame.confidences[MediaPipePoseBackend.LEFT_ANKLE] >= minConf) {
-                        ankleLeftY[frame.frameIdx] = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE][1]
+                    val conf = frame.confidences
+                    val idx = frame.frameIdx
+                    if (idx >= n) continue
+                    if (confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE) >= minConf) {
+                        ankleLeftY[idx] = frame.keypoints[MediaPipePoseBackend.LEFT_ANKLE][1]
                     }
-                    if (frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE] >= minConf) {
-                        ankleRightY[frame.frameIdx] = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE][1]
+                    if (confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE) >= minConf) {
+                        ankleRightY[idx] = frame.keypoints[MediaPipePoseBackend.RIGHT_ANKLE][1]
                     }
                 }
                 
@@ -675,14 +887,17 @@ class FeatureExtractor(
                 
                 for (frame in poseSeq.frames) {
                     val kp = frame.keypoints
+                    val conf = frame.confidences
+                    val idx = frame.frameIdx
+                    if (idx >= n) continue
                     
                     val leftConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.LEFT_HIP],
-                        frame.confidences[MediaPipePoseBackend.LEFT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_HIP),
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_KNEE),
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE)
                     )
                     if (leftConf >= minConf) {
-                        kneeLeft[frame.frameIdx] = computeAngle(
+                        kneeLeft[idx] = computeAngle(
                             kp[MediaPipePoseBackend.LEFT_HIP],
                             kp[MediaPipePoseBackend.LEFT_KNEE],
                             kp[MediaPipePoseBackend.LEFT_ANKLE]
@@ -690,12 +905,12 @@ class FeatureExtractor(
                     }
                     
                     val rightConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.RIGHT_HIP],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_HIP),
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_KNEE),
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE)
                     )
                     if (rightConf >= minConf) {
-                        kneeRight[frame.frameIdx] = computeAngle(
+                        kneeRight[idx] = computeAngle(
                             kp[MediaPipePoseBackend.RIGHT_HIP],
                             kp[MediaPipePoseBackend.RIGHT_KNEE],
                             kp[MediaPipePoseBackend.RIGHT_ANKLE]
@@ -757,30 +972,31 @@ class FeatureExtractor(
     }
     
     private fun computeConfidenceCoverage(poseSeq: PoseSequence, mode: StepSignalMode): Float {
-        val minConf = 0.15f
-        val minConfBoth = 0.3f
+        val minConf = GaitConfig.STEP_DETECT_MIN_CONF
+        val minConfBoth = GaitConfig.STEP_DETECT_MIN_CONF_BOTH
         var validCount = 0
         
         for (frame in poseSeq.frames) {
+            val conf = frame.confidences
             val isValid = when (mode) {
                 StepSignalMode.INTER_ANKLE -> {
-                    minOf(frame.confidences[MediaPipePoseBackend.LEFT_ANKLE],
-                          frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]) >= minConfBoth
+                    minOf(confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE),
+                          confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE)) >= minConfBoth
                 }
                 StepSignalMode.MAX_ANKLE_VY -> {
-                    frame.confidences[MediaPipePoseBackend.LEFT_ANKLE] >= minConf ||
-                    frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE] >= minConf
+                    confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE) >= minConf ||
+                    confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE) >= minConf
                 }
                 StepSignalMode.MIN_KNEE_ANGLE -> {
                     val leftConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.LEFT_HIP],
-                        frame.confidences[MediaPipePoseBackend.LEFT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.LEFT_ANKLE]
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_HIP),
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_KNEE),
+                        confidenceAt(conf, MediaPipePoseBackend.LEFT_ANKLE)
                     )
                     val rightConf = minOf(
-                        frame.confidences[MediaPipePoseBackend.RIGHT_HIP],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_KNEE],
-                        frame.confidences[MediaPipePoseBackend.RIGHT_ANKLE]
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_HIP),
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_KNEE),
+                        confidenceAt(conf, MediaPipePoseBackend.RIGHT_ANKLE)
                     )
                     leftConf >= minConf || rightConf >= minConf
                 }

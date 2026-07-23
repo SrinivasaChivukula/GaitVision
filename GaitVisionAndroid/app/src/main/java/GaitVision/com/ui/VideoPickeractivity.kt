@@ -1,34 +1,37 @@
 package GaitVision.com.ui
 
+import GaitVision.com.AnalysisSession
+import GaitVision.com.R
+import GaitVision.com.extractRecordingDate
+import android.app.DatePickerDialog
+import android.content.ContentValues
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.VideoView
 import android.widget.Toast
-import android.net.Uri
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.VideoView
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
-import GaitVision.com.R
-import GaitVision.com.AnalysisSession
-import GaitVision.com.extractRecordingDate
-import android.widget.ImageButton
-import android.app.DatePickerDialog
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
-import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class VideoPickerActivity : BaseActivity() {
 
     private var selectedVideo: Uri? = null
+    private var pendingRecordingUri: Uri? = null
 
     private lateinit var videoView: VideoView
     private lateinit var tvPlaceholder: TextView
@@ -39,22 +42,60 @@ class VideoPickerActivity : BaseActivity() {
     private lateinit var btnEditDate: ImageButton
 
     private var selectedDateMillis: Long = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
     }.timeInMillis
-    private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+
+    private val dateFormat =
+        SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+
+    private val recordVideoLauncher =
+        registerForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+            val recordedUri = pendingRecordingUri
+
+            if (success && recordedUri != null) {
+                finalizeRecording(recordedUri)
+
+                showSelectedVideo(
+                    recordedUri,
+                    "Recording saved successfully"
+                )
+
+                selectedDateMillis = startOfToday()
+                updateDateDisplay()
+
+                Log.d("VideoPicker", "Recorded video saved: $recordedUri")
+            } else {
+                recordedUri?.let { deleteRecording(it) }
+
+                tvStatus.text = "Recording cancelled"
+
+                Toast.makeText(
+                    this,
+                    "Recording was cancelled or could not be saved.",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                Log.w("VideoPicker", "Recording cancelled or unsuccessful")
+            }
+
+            pendingRecordingUri = null
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_picker)
 
-        // Initialize view properties
         videoView = findViewById(R.id.videoView)
         tvPlaceholder = findViewById(R.id.tvPlaceholder)
         tvStatus = findViewById(R.id.tvStatus)
         btnContinue = findViewById(R.id.btnContinue)
-        // The parent CardView controls visibility (the LinearLayout is inside it)
-        cardContinue = (btnContinue.parent as View)
+
+        // The parent CardView controls visibility.
+        cardContinue = btnContinue.parent as View
+
         tvDate = findViewById(R.id.tvDate)
         btnEditDate = findViewById(R.id.btnEditDate)
 
@@ -63,63 +104,60 @@ class VideoPickerActivity : BaseActivity() {
     }
 
     private fun setupButtons() {
-
-        // photo picker api
         val pickVideoLauncher =
-            registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+            registerForActivityResult(
+                ActivityResultContracts.PickVisualMedia()
+            ) { uri: Uri? ->
                 Log.d("VideoPicker", "Selected URI: $uri")
 
-                uri?.let { videoUri ->
-                    selectedVideo = videoUri
+                if (uri != null) {
+                    showSelectedVideo(
+                        uri,
+                        "Video loaded successfully"
+                    )
 
-                    // Show the video view and hide placeholder
-                    videoView.visibility = View.VISIBLE
-                    tvPlaceholder.visibility = View.GONE
-                    cardContinue.visibility = View.VISIBLE
-
-                    // Update status text
-                    tvStatus.text = "Video loaded successfully"
-
-                    // Set and start the video
-                    videoView.setVideoURI(videoUri)
-                    videoView.start()
-
-                    // Pre-fill the date picker from embedded metadata.
-                    // Clinician still has to confirm (or change) before hitting Continue.
                     lifecycleScope.launch(Dispatchers.IO) {
-                        val meta = extractRecordingDate(this@VideoPickerActivity, videoUri)
-                        if (meta != null) withContext(Dispatchers.Main) {
-                            selectedDateMillis = meta
-                            updateDateDisplay()
+                        val metadataDate =
+                            extractRecordingDate(
+                                this@VideoPickerActivity,
+                                uri
+                            )
+
+                        if (metadataDate != null) {
+                            withContext(Dispatchers.Main) {
+                                selectedDateMillis = metadataDate
+                                updateDateDisplay()
+                            }
                         }
                     }
+                } else {
+                    tvStatus.text = "No video selected"
 
-                    Log.d("VideoPicker", "Video playback started")
-                } ?: run {
-                    Log.e("VideoPicker", "URI is null - no video selected or permission denied")
                     Toast.makeText(
                         this,
-                        "Failed to load video. Please try again.",
+                        "No video was selected.",
                         Toast.LENGTH_SHORT
                     ).show()
-                    tvStatus.text = "Failed to load video"
+
+                    Log.w("VideoPicker", "No gallery video selected")
                 }
             }
 
         findViewById<LinearLayout>(R.id.btnPick).setOnClickListener {
-            // Use PickVisualMedia to select only videos
-            val request = PickVisualMediaRequest.Builder()
-                .setMediaType(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                .build()
+            val request =
+                PickVisualMediaRequest.Builder()
+                    .setMediaType(
+                        ActivityResultContracts.PickVisualMedia.VideoOnly
+                    )
+                    .build()
+
             pickVideoLauncher.launch(request)
         }
 
         findViewById<LinearLayout>(R.id.btnRecord).setOnClickListener {
-            val recordIntent = Intent(MediaStore.ACTION_VIDEO_CAPTURE)
-            startActivity(recordIntent)
+            startVideoRecording()
         }
 
-        // Initialize display date
         updateDateDisplay()
 
         btnEditDate.setOnClickListener {
@@ -127,69 +165,291 @@ class VideoPickerActivity : BaseActivity() {
         }
 
         btnContinue.setOnClickListener {
-            selectedVideo?.let { uri ->
-                AnalysisSession.recordingDate = selectedDateMillis
-                val shouldSave = intent.getBooleanExtra(AnalysisActivity.EXTRA_SHOULD_SAVE, true)
-                val analysisIntent = Intent(this, AnalysisActivity::class.java).apply {
+            val uri = selectedVideo
+
+            if (uri == null) {
+                Toast.makeText(
+                    this,
+                    "Please select or record a video first.",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                return@setOnClickListener
+            }
+
+            AnalysisSession.recordingDate = selectedDateMillis
+
+            val shouldSave =
+                intent.getBooleanExtra(
+                    AnalysisActivity.EXTRA_SHOULD_SAVE,
+                    true
+                )
+
+            val analysisIntent =
+                Intent(this, AnalysisActivity::class.java).apply {
                     data = uri
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(AnalysisActivity.EXTRA_SHOULD_SAVE, shouldSave)
+                    putExtra(
+                        AnalysisActivity.EXTRA_SHOULD_SAVE,
+                        shouldSave
+                    )
                 }
-                startActivity(analysisIntent)
-            } ?: run {
-                Toast.makeText(this, "Please select a video first", Toast.LENGTH_SHORT).show()
+
+            startActivity(analysisIntent)
+        }
+    }
+
+    private fun startVideoRecording() {
+        val recordingUri = createRecordingUri()
+
+        if (recordingUri == null) {
+            tvStatus.text = "Unable to start recording"
+
+            Toast.makeText(
+                this,
+                "The app could not create a video file. Check your available storage.",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
+
+        pendingRecordingUri = recordingUri
+        tvStatus.text = "Opening camera..."
+
+        try {
+            recordVideoLauncher.launch(recordingUri)
+        } catch (exception: Exception) {
+            Log.e(
+                "VideoPicker",
+                "Could not open the camera",
+                exception
+            )
+
+            deleteRecording(recordingUri)
+            pendingRecordingUri = null
+            tvStatus.text = "Camera unavailable"
+
+            Toast.makeText(
+                this,
+                "The camera could not be opened.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun createRecordingUri(): Uri? {
+        val fileName =
+            "gait_video_${System.currentTimeMillis()}.mp4"
+
+        val values = ContentValues().apply {
+            put(
+                MediaStore.Video.Media.DISPLAY_NAME,
+                fileName
+            )
+
+            put(
+                MediaStore.Video.Media.MIME_TYPE,
+                "video/mp4"
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Video.Media.RELATIVE_PATH,
+                    "Movies/GaitVision"
+                )
+
+                put(
+                    MediaStore.Video.Media.IS_PENDING,
+                    1
+                )
             }
+        }
+
+        return try {
+            contentResolver.insert(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                values
+            )
+        } catch (exception: Exception) {
+            Log.e(
+                "VideoPicker",
+                "Could not create recording URI",
+                exception
+            )
+
+            null
+        }
+    }
+
+    private fun finalizeRecording(uri: Uri) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return
+        }
+
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.IS_PENDING, 0)
+            }
+
+            contentResolver.update(
+                uri,
+                values,
+                null,
+                null
+            )
+        } catch (exception: Exception) {
+            Log.e(
+                "VideoPicker",
+                "Could not finalize recording",
+                exception
+            )
+        }
+    }
+
+    private fun deleteRecording(uri: Uri) {
+        try {
+            contentResolver.delete(
+                uri,
+                null,
+                null
+            )
+        } catch (exception: Exception) {
+            Log.e(
+                "VideoPicker",
+                "Could not delete cancelled recording",
+                exception
+            )
+        }
+    }
+
+    private fun showSelectedVideo(
+        videoUri: Uri,
+        statusMessage: String
+    ) {
+        selectedVideo = videoUri
+
+        videoView.visibility = View.VISIBLE
+        tvPlaceholder.visibility = View.GONE
+        cardContinue.visibility = View.VISIBLE
+        tvStatus.text = statusMessage
+
+        videoView.setVideoURI(videoUri)
+
+        videoView.setOnPreparedListener {
+            // Display the first frame instead of autoplaying.
+            videoView.seekTo(1)
+        }
+
+        videoView.setOnErrorListener { _, what, extra ->
+            Log.e(
+                "VideoPicker",
+                "Video preview error: what=$what, extra=$extra"
+            )
+
+            tvStatus.text = "Unable to preview video"
+
+            Toast.makeText(
+                this,
+                "The video could not be previewed. Please try again.",
+                Toast.LENGTH_LONG
+            ).show()
+
+            true
         }
     }
 
     private fun showDatePicker() {
-        val calendar = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = selectedDateMillis
+        }
+
         val year = calendar.get(Calendar.YEAR)
         val month = calendar.get(Calendar.MONTH)
         val dayOfMonth = calendar.get(Calendar.DAY_OF_MONTH)
 
-        val datePickerDialog = DatePickerDialog(
-            this,
-            R.style.Theme_GaitVision_DatePicker,
-            { _, selectedYear, selectedMonth, selectedDay ->
-                val selectedCalendar = Calendar.getInstance().apply {
-                    set(selectedYear, selectedMonth, selectedDay)
-                    // normalize to start of day, app doesn't use time of day
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                selectedDateMillis = selectedCalendar.timeInMillis
-                updateDateDisplay()
-            },
-            year,
-            month,
-            dayOfMonth
-        )
-        // Ensure user can't select future dates
-        datePickerDialog.datePicker.maxDate = System.currentTimeMillis()
+        val datePickerDialog =
+            DatePickerDialog(
+                this,
+                R.style.Theme_GaitVision_DatePicker,
+                { _, selectedYear, selectedMonth, selectedDay ->
+                    val selectedCalendar =
+                        Calendar.getInstance().apply {
+                            set(
+                                selectedYear,
+                                selectedMonth,
+                                selectedDay
+                            )
+
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+
+                    selectedDateMillis =
+                        selectedCalendar.timeInMillis
+
+                    updateDateDisplay()
+                },
+                year,
+                month,
+                dayOfMonth
+            )
+
+        datePickerDialog.datePicker.maxDate =
+            System.currentTimeMillis()
+
         datePickerDialog.show()
-        // Material's TextButton.Dialog uses a state-list selector for text
-        // color that ignores theme attrs, so just force white here.
-        val white = androidx.core.content.ContextCompat.getColor(this, R.color.text_white)
-        datePickerDialog.getButton(DatePickerDialog.BUTTON_POSITIVE)?.setTextColor(white)
-        datePickerDialog.getButton(DatePickerDialog.BUTTON_NEGATIVE)?.setTextColor(white)
-        datePickerDialog.getButton(DatePickerDialog.BUTTON_NEUTRAL)?.setTextColor(white)
+
+        val white =
+            androidx.core.content.ContextCompat.getColor(
+                this,
+                R.color.text_white
+            )
+
+        datePickerDialog
+            .getButton(DatePickerDialog.BUTTON_POSITIVE)
+            ?.setTextColor(white)
+
+        datePickerDialog
+            .getButton(DatePickerDialog.BUTTON_NEGATIVE)
+            ?.setTextColor(white)
+
+        datePickerDialog
+            .getButton(DatePickerDialog.BUTTON_NEUTRAL)
+            ?.setTextColor(white)
     }
 
     private fun updateDateDisplay() {
-        if (isToday(selectedDateMillis)) {
-            tvDate.text = getString(R.string.label_date_today)
-        } else {
-            tvDate.text = dateFormat.format(Date(selectedDateMillis))
-        }
+        tvDate.text =
+            if (isToday(selectedDateMillis)) {
+                getString(R.string.label_date_today)
+            } else {
+                dateFormat.format(Date(selectedDateMillis))
+            }
+    }
+
+    private fun startOfToday(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     private fun isToday(inTimeMillis: Long): Boolean {
-        val calendarTarget = Calendar.getInstance().apply { timeInMillis = inTimeMillis }
+        val calendarTarget =
+            Calendar.getInstance().apply {
+                timeInMillis = inTimeMillis
+            }
+
         val calendarToday = Calendar.getInstance()
-        return calendarTarget.get(Calendar.YEAR) == calendarToday.get(Calendar.YEAR) &&
-               calendarTarget.get(Calendar.DAY_OF_YEAR) == calendarToday.get(Calendar.DAY_OF_YEAR)
+
+        return calendarTarget.get(Calendar.YEAR) ==
+                calendarToday.get(Calendar.YEAR) &&
+                calendarTarget.get(Calendar.DAY_OF_YEAR) ==
+                calendarToday.get(Calendar.DAY_OF_YEAR)
     }
 }

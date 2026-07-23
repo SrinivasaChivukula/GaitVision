@@ -1,22 +1,19 @@
 package GaitVision.com.mediapipe
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.util.Log
 import GaitVision.com.gait.GaitConfig
 import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * ROI (Region of Interest) Tracker for improved pose detection.
- * 
- * Kotlin port of PC ROITracker (pose_backend_tasks.py).
- * Uses state machine: Detect → Track → Reacquire pattern.
- * 
- * Industry-standard pattern that:
- * - Crops to person ROI for higher effective resolution
- * - Handles mid-video degradation without reprocessing
- * - Maps all keypoints back to full-frame coordinates
+ *
+ * Uses a conservative state machine:
+ * ACQUIRE full-frame -> TRACK ROI -> EXPAND ROI -> REACQUIRE full-frame.
  */
 class ROITracker(
     private val margin: Float = GaitConfig.ROI_MARGIN,
@@ -38,32 +35,38 @@ class ROITracker(
     companion object {
         private const val TAG = "ROITracker"
     }
-    
-    /**
-     * State machine states for ROI tracking.
-     */
+
     enum class ROIState {
-        ACQUIRE,    // Full-frame until stable pose
-        TRACK,      // ROI tracking mode
-        EXPAND,     // Expanded ROI (quality degrading)
-        REACQUIRE   // Burst full-frame to recover
+        ACQUIRE,
+        TRACK,
+        EXPAND,
+        REACQUIRE
     }
-    
-    // State machine
+
+    data class RoiCrop(
+        val bitmap: Bitmap,
+        val roiBounds: Rect,
+        val squareSize: Int,
+        val padLeft: Int,
+        val padTop: Int,
+        val contentWidth: Int,
+        val contentHeight: Int
+    )
+
     private var state = ROIState.ACQUIRE
     private var stateFrameCount = 0
-    
-    // ROI bounds (normalized 0-1)
+    private var acquireStableGoodFrames = 0
+
     private var roiCenterX: Float? = null
     private var roiCenterY: Float? = null
-    private var roiSize: Float? = null
-    
-    // Quality monitoring
+    private var roiWidth: Float? = null
+    private var roiHeight: Float? = null
+
     private val qualityHistory = mutableListOf<Float>()
     private val detectHistory = mutableListOf<Boolean>()
     private var consecutiveFailures = 0
-    
-    // Stats for logging
+    private var lowerBodyBadStreak = 0
+
     var framesInAcquire = 0
         private set
     var framesInTrack = 0
@@ -78,19 +81,21 @@ class ROITracker(
         private set
     var maxConsecutiveFail = 0
         private set
-    
-    /**
-     * Reset tracker state.
-     */
+    var maxLowerBodyBadStreak = 0
+        private set
+
     fun reset() {
         state = ROIState.ACQUIRE
         stateFrameCount = 0
+        acquireStableGoodFrames = 0
         roiCenterX = null
         roiCenterY = null
-        roiSize = null
+        roiWidth = null
+        roiHeight = null
         qualityHistory.clear()
         detectHistory.clear()
         consecutiveFailures = 0
+        lowerBodyBadStreak = 0
         framesInAcquire = 0
         framesInTrack = 0
         framesInExpand = 0
@@ -98,201 +103,206 @@ class ROITracker(
         reacquireCount = 0
         transitionCount = 0
         maxConsecutiveFail = 0
+        maxLowerBodyBadStreak = 0
     }
-    
-    /**
-     * Get far-leg confidence (min of both ankles).
-     */
-    private fun computeFarLegConf(confidences: FloatArray): Float {
-        return min(
-            confidences[MediaPipePoseBackend.LEFT_ANKLE],
-            confidences[MediaPipePoseBackend.RIGHT_ANKLE]
+
+    fun lowerBodyQuality(confidences: FloatArray?): Float {
+        if (confidences == null) return 0f
+        val indices = intArrayOf(
+            MediaPipePoseBackend.LEFT_KNEE,
+            MediaPipePoseBackend.RIGHT_KNEE,
+            MediaPipePoseBackend.LEFT_ANKLE,
+            MediaPipePoseBackend.RIGHT_ANKLE,
+            MediaPipePoseBackend.LEFT_HEEL,
+            MediaPipePoseBackend.RIGHT_HEEL,
+            MediaPipePoseBackend.LEFT_FOOT_INDEX,
+            MediaPipePoseBackend.RIGHT_FOOT_INDEX
         )
+
+        var sum = 0f
+        var valid = 0
+        for (idx in indices) {
+            val confidence = confidences.getOrNull(idx)?.coerceIn(0f, 1f) ?: 0f
+            sum += confidence
+            if (confidence >= GaitConfig.MIN_CONFIDENCE) valid++
+        }
+
+        val mean = sum / indices.size
+        val coverage = valid.toFloat() / indices.size
+        return mean * coverage
     }
-    
-    /**
-     * Update rolling quality window.
-     */
-    private fun updateQualityHistory(farLegConf: Float) {
-        qualityHistory.add(farLegConf)
+
+    private fun updateQualityHistory(quality: Float) {
+        qualityHistory.add(quality)
         while (qualityHistory.size > qualityWindowSize) {
             qualityHistory.removeAt(0)
         }
     }
-    
-    /**
-     * Update rolling detection-failure window.
-     */
+
     private fun updateDetectHistory(success: Boolean) {
         detectHistory.add(success)
         while (detectHistory.size > qualityWindowSize) {
             detectHistory.removeAt(0)
         }
     }
-    
-    /**
-     * Fraction of recent frames that were detection failures.
-     */
+
     private fun failureRate(): Float {
         if (detectHistory.isEmpty()) return 0f
         return detectHistory.count { !it }.toFloat() / detectHistory.size
     }
-    
-    /**
-     * Check if quality is degraded based on rolling window.
-     */
+
     private fun isQualityDegraded(): Boolean {
         if (qualityHistory.size < qualityWindowSize / 2) return false
-        
         val degradedCount = qualityHistory.count { it < qualityThreshold }
         val degradedRatio = degradedCount.toFloat() / qualityHistory.size
         return degradedRatio >= degradedRatioThreshold
     }
-    
-    /**
-     * Check if quality has recovered.
-     */
+
     private fun isQualityRecovered(): Boolean {
         if (qualityHistory.size < 5) return false
-        
         val recent = qualityHistory.takeLast(5)
-        val goodCount = recent.count { it >= qualityThreshold }
-        return goodCount >= 4
+        return recent.count { it >= qualityThreshold } >= 4
     }
-    
-    /**
-     * Update ROI bounds from keypoints.
-     * 
-     * @param keypoints Normalized keypoints (33x2)
-     * @param confidences Visibility scores (33)
-     * @param useExpandedMargin Whether to use expanded margin
-     * @return True if successful
-     */
+
     private fun updateRoiBounds(
         keypoints: Array<FloatArray>,
-        confidences: FloatArray,
-        useExpandedMargin: Boolean = false
+        confidences: FloatArray
     ): Boolean {
         val coreIndices = intArrayOf(
-            MediaPipePoseBackend.LEFT_SHOULDER, MediaPipePoseBackend.RIGHT_SHOULDER,
-            MediaPipePoseBackend.LEFT_HIP, MediaPipePoseBackend.RIGHT_HIP,
-            MediaPipePoseBackend.LEFT_KNEE, MediaPipePoseBackend.RIGHT_KNEE,
-            MediaPipePoseBackend.LEFT_ANKLE, MediaPipePoseBackend.RIGHT_ANKLE
+            MediaPipePoseBackend.LEFT_SHOULDER,
+            MediaPipePoseBackend.RIGHT_SHOULDER,
+            MediaPipePoseBackend.LEFT_HIP,
+            MediaPipePoseBackend.RIGHT_HIP,
+            MediaPipePoseBackend.LEFT_KNEE,
+            MediaPipePoseBackend.RIGHT_KNEE,
+            MediaPipePoseBackend.LEFT_ANKLE,
+            MediaPipePoseBackend.RIGHT_ANKLE,
+            MediaPipePoseBackend.LEFT_HEEL,
+            MediaPipePoseBackend.RIGHT_HEEL,
+            MediaPipePoseBackend.LEFT_FOOT_INDEX,
+            MediaPipePoseBackend.RIGHT_FOOT_INDEX
         )
-        
+
         val validKps = mutableListOf<FloatArray>()
         for (idx in coreIndices) {
-            if (confidences[idx] > 0.3f) {
-                validKps.add(keypoints[idx])
+            val confidence = confidences.getOrNull(idx) ?: 0f
+            val point = keypoints.getOrNull(idx)
+            if (confidence > GaitConfig.ROI_BOUNDS_MIN_CONFIDENCE && point != null) {
+                validKps.add(point)
             }
         }
-        
         if (validKps.size < 4) return false
-        
+
         val xMin = validKps.minOf { it[0] }
         val xMax = validKps.maxOf { it[0] }
         val yMin = validKps.minOf { it[1] }
         val yMax = validKps.maxOf { it[1] }
-        
-        val newCenterX = (xMin + xMax) / 2f
-        val newCenterY = (yMin + yMax) / 2f
-        
-        val currentMargin = if (useExpandedMargin) expandedMargin else margin
-        var newSize = max(xMax - xMin, yMax - yMin) * currentMargin
-        newSize = max(newSize, 0.3f)  // Minimum size
-        
+
+        val bodyWidth = max(xMax - xMin, 0.05f)
+        val bodyHeight = max(yMax - yMin, 0.05f)
+        val xPad = bodyWidth * (margin - 1f) / 2f
+        val yPad = bodyHeight * (margin - 1f) / 2f
+        val yTopPad = yPad + bodyHeight * GaitConfig.ROI_UPPER_BODY_EXTRA_PAD
+        val yBottomPad = yPad + bodyHeight * GaitConfig.ROI_LOWER_BODY_EXTRA_PAD
+
+        val paddedXMin = (xMin - xPad).coerceIn(0f, 1f)
+        val paddedXMax = (xMax + xPad).coerceIn(0f, 1f)
+        val paddedYMin = (yMin - yTopPad).coerceIn(0f, 1f)
+        val paddedYMax = (yMax + yBottomPad).coerceIn(0f, 1f)
+
+        val newCenterX = (paddedXMin + paddedXMax) / 2f
+        val newCenterY = (paddedYMin + paddedYMax) / 2f
+        val newWidth = max(paddedXMax - paddedXMin, 0.3f)
+        val newHeight = max(paddedYMax - paddedYMin, 0.3f)
+
         if (roiCenterX == null) {
             roiCenterX = newCenterX
             roiCenterY = newCenterY
-            roiSize = newSize
+            roiWidth = newWidth
+            roiHeight = newHeight
         } else {
-            // EMA smoothing for center
             roiCenterX = centerEmaAlpha * newCenterX + (1 - centerEmaAlpha) * roiCenterX!!
             roiCenterY = centerEmaAlpha * newCenterY + (1 - centerEmaAlpha) * roiCenterY!!
-            
-            // Expand fast, shrink slow for size
-            val alpha = if (newSize > roiSize!!) sizeExpandAlpha else sizeShrinkAlpha
-            roiSize = alpha * newSize + (1 - alpha) * roiSize!!
+
+            val widthAlpha = if (newWidth > roiWidth!!) sizeExpandAlpha else sizeShrinkAlpha
+            val heightAlpha = if (newHeight > roiHeight!!) sizeExpandAlpha else sizeShrinkAlpha
+            roiWidth = widthAlpha * newWidth + (1 - widthAlpha) * roiWidth!!
+            roiHeight = heightAlpha * newHeight + (1 - heightAlpha) * roiHeight!!
         }
-        
+
         return true
     }
-    
-    /**
-     * Transition to a new state.
-     */
+
     private fun transition(newState: ROIState) {
         state = newState
         stateFrameCount = 0
         transitionCount++
+        if (newState == ROIState.ACQUIRE) {
+            acquireStableGoodFrames = 0
+        }
     }
-    
-    /**
-     * Update state machine based on detection results.
-     * 
-     * @param keypoints Normalized keypoints (or null if detection failed)
-     * @param confidences Visibility scores (or null if detection failed)
-     * @param detectionSuccess Whether pose was detected
-     * @return Pair(useRoiNextFrame, useExpandedMargin)
-     */
+
     fun update(
         keypoints: Array<FloatArray>?,
         confidences: FloatArray?,
         detectionSuccess: Boolean
     ): Pair<Boolean, Boolean> {
         stateFrameCount++
-        
-        // Update quality history
-        if (detectionSuccess && confidences != null) {
-            val farLegConf = computeFarLegConf(confidences)
-            updateQualityHistory(farLegConf)
-        } else {
-            updateQualityHistory(0f)  // Treat failure as worst quality
-        }
-        
-        // Track consecutive failures
+
+        val quality = if (detectionSuccess) lowerBodyQuality(confidences) else 0f
+        updateQualityHistory(quality)
+
         if (detectionSuccess) {
             consecutiveFailures = 0
         } else {
             consecutiveFailures++
             maxConsecutiveFail = max(maxConsecutiveFail, consecutiveFailures)
         }
-        
-        // State machine transitions
+
+        if (quality < qualityThreshold) {
+            lowerBodyBadStreak++
+            maxLowerBodyBadStreak = max(maxLowerBodyBadStreak, lowerBodyBadStreak)
+        } else {
+            lowerBodyBadStreak = 0
+        }
+
         return when (state) {
             ROIState.ACQUIRE -> {
                 framesInAcquire++
-                
                 if (detectionSuccess && keypoints != null && confidences != null) {
-                    updateRoiBounds(keypoints, confidences)
-                    
-                    if (stateFrameCount >= acquireStableFrames && roiCenterX != null) {
-                        transition(ROIState.TRACK)
-                        Log.d(TAG, "ROI: ACQUIRE -> TRACK")
+                    val updated = updateRoiBounds(keypoints, confidences)
+                    if (updated && quality >= GaitConfig.ROI_ACQUIRE_MIN_QUALITY) {
+                        acquireStableGoodFrames++
+                    } else {
+                        acquireStableGoodFrames = 0
                     }
+
+                    if (acquireStableGoodFrames >= acquireStableFrames && roiCenterX != null) {
+                        transition(ROIState.TRACK)
+                        Log.d(TAG, "ROI: ACQUIRE -> TRACK after $acquireStableFrames stable lower-body frames")
+                    }
+                } else {
+                    acquireStableGoodFrames = 0
                 }
-                
-                Pair(false, false)  // Full-frame during acquire
+                Pair(false, false)
             }
-            
+
             ROIState.TRACK -> {
                 framesInTrack++
                 updateDetectHistory(detectionSuccess)
-                
                 if (detectionSuccess && keypoints != null && confidences != null) {
                     updateRoiBounds(keypoints, confidences)
                 }
-                
-                // Hard trigger: consecutive failures → REACQUIRE
-                if (consecutiveFailures >= consecutiveFailReacquire) {
+
+                if (consecutiveFailures >= consecutiveFailReacquire ||
+                    lowerBodyBadStreak >= GaitConfig.ROI_FAST_REACQUIRE_BAD_FRAMES) {
                     transition(ROIState.REACQUIRE)
                     reacquireCount++
                     detectHistory.clear()
-                    Log.d(TAG, "ROI: TRACK -> REACQUIRE (consecutive failures)")
+                    Log.d(TAG, "ROI: TRACK -> REACQUIRE (failures=$consecutiveFailures, lowerBodyBad=$lowerBodyBadStreak)")
                     return Pair(false, false)
                 }
-                
-                // Check failure rate after min dwell
+
                 if (stateFrameCount >= minDwellFrames) {
                     val failRate = failureRate()
                     if (failRate >= failRatioThresholdTrack) {
@@ -306,55 +316,54 @@ class ROITracker(
                         return Pair(true, true)
                     }
                 }
-                
-                Pair(true, false)  // ROI with normal margin
+
+                Pair(true, false)
             }
-            
+
             ROIState.EXPAND -> {
                 framesInExpand++
                 updateDetectHistory(detectionSuccess)
-                
                 if (detectionSuccess && keypoints != null && confidences != null) {
-                    updateRoiBounds(keypoints, confidences, useExpandedMargin = true)
+                    updateRoiBounds(keypoints, confidences)
                 }
-                
-                // Check if quality recovered
+
+                if (lowerBodyBadStreak >= GaitConfig.ROI_FAST_REACQUIRE_BAD_FRAMES) {
+                    transition(ROIState.REACQUIRE)
+                    reacquireCount++
+                    detectHistory.clear()
+                    Log.d(TAG, "ROI: EXPAND -> REACQUIRE (lower-body confidence stayed low)")
+                    return Pair(false, false)
+                }
+
                 if (isQualityRecovered()) {
                     transition(ROIState.TRACK)
                     Log.d(TAG, "ROI: EXPAND -> TRACK (quality recovered)")
                     return Pair(true, false)
                 }
-                
-                // Timeout or continued failure → REACQUIRE
+
                 if (stateFrameCount >= reacquireFrames) {
                     val failRate = failureRate()
-                    if (failRate >= failRatioThresholdExpand) {
-                        transition(ROIState.REACQUIRE)
-                        reacquireCount++
-                        detectHistory.clear()
-                        Log.d(TAG, "ROI: EXPAND -> REACQUIRE (failure rate ${(failRate * 100).toInt()}%)")
-                        return Pair(false, false)
-                    }
-                    // Timeout without recovery
                     transition(ROIState.REACQUIRE)
                     reacquireCount++
                     detectHistory.clear()
-                    Log.d(TAG, "ROI: EXPAND -> REACQUIRE (timeout)")
+                    val reason = if (failRate >= failRatioThresholdExpand) {
+                        "failure rate ${(failRate * 100).toInt()}%"
+                    } else {
+                        "timeout"
+                    }
+                    Log.d(TAG, "ROI: EXPAND -> REACQUIRE ($reason)")
                     return Pair(false, false)
                 }
-                
-                Pair(true, true)  // ROI with expanded margin
+
+                Pair(true, true)
             }
-            
+
             ROIState.REACQUIRE -> {
                 framesInReacquire++
-                
                 if (detectionSuccess && keypoints != null && confidences != null) {
                     updateRoiBounds(keypoints, confidences)
-                    updateQualityHistory(computeFarLegConf(confidences))
                 }
-                
-                // After burst, return to tracking or expand
+
                 if (stateFrameCount >= reacquireFrames) {
                     if (isQualityRecovered()) {
                         transition(ROIState.TRACK)
@@ -365,103 +374,140 @@ class ROITracker(
                     }
                     return Pair(true, state == ROIState.EXPAND)
                 }
-                
-                Pair(false, false)  // Full-frame during reacquire
+
+                Pair(false, false)
             }
         }
     }
-    
-    /**
-     * Get ROI bounds in pixel coordinates.
-     * 
-     * @param frameWidth Frame width in pixels
-     * @param frameHeight Frame height in pixels
-     * @param useExpanded Whether to use expanded margin
-     * @return Rect with ROI bounds, or full frame if not ready
-     */
+
     fun getRoiBounds(frameWidth: Int, frameHeight: Int, useExpanded: Boolean = false): Rect {
-        if (roiCenterX == null || roiSize == null) {
+        if (roiCenterX == null || roiWidth == null || roiHeight == null) {
             return Rect(0, 0, frameWidth, frameHeight)
         }
-        
-        var size = roiSize!!
+
+        var width = roiWidth!!
+        var height = roiHeight!!
         if (useExpanded) {
-            size *= (expandedMargin / margin)
+            val expansion = expandedMargin / margin
+            width *= expansion
+            height *= expansion
         }
-        
-        val halfSize = size / 2f
-        
-        val x0 = ((roiCenterX!! - halfSize) * frameWidth).toInt().coerceAtLeast(0)
-        val y0 = ((roiCenterY!! - halfSize) * frameHeight).toInt().coerceAtLeast(0)
-        val x1 = ((roiCenterX!! + halfSize) * frameWidth).toInt().coerceAtMost(frameWidth)
-        val y1 = ((roiCenterY!! + halfSize) * frameHeight).toInt().coerceAtMost(frameHeight)
-        
-        // Ensure minimum size
+
+        val halfWidth = width / 2f
+        val halfHeight = height / 2f
+        val x0 = ((roiCenterX!! - halfWidth) * frameWidth).roundToInt().coerceAtLeast(0)
+        val y0 = ((roiCenterY!! - halfHeight) * frameHeight).roundToInt().coerceAtLeast(0)
+        val x1 = ((roiCenterX!! + halfWidth) * frameWidth).roundToInt().coerceAtMost(frameWidth)
+        val y1 = ((roiCenterY!! + halfHeight) * frameHeight).roundToInt().coerceAtMost(frameHeight)
+
         if (x1 - x0 < 100 || y1 - y0 < 100) {
             return Rect(0, 0, frameWidth, frameHeight)
         }
-        
+
         return Rect(x0, y0, x1, y1)
     }
-    
-    /**
-     * Map keypoints from ROI-normalized coords to full-frame normalized coords.
-     * 
-     * @param keypoints ROI-normalized keypoints (33x2)
-     * @param roiBounds ROI bounds in pixels
-     * @param frameWidth Full frame width
-     * @param frameHeight Full frame height
-     * @return Full-frame normalized keypoints
-     */
+
     fun mapKeypointsToFullFrame(
         keypoints: Array<FloatArray>,
-        roiBounds: Rect,
+        roiCrop: RoiCrop,
         frameWidth: Int,
         frameHeight: Int
     ): Array<FloatArray> {
-        val roiWidth = roiBounds.width().toFloat()
-        val roiHeight = roiBounds.height().toFloat()
-        
+        val roiBounds = roiCrop.roiBounds
+        val roiWidth = roiCrop.contentWidth.toFloat()
+        val roiHeight = roiCrop.contentHeight.toFloat()
+        val squareSize = roiCrop.squareSize.toFloat()
+
         return Array(keypoints.size) { i ->
+            val squareX = keypoints[i][0] * squareSize
+            val squareY = keypoints[i][1] * squareSize
+            val cropX = (squareX - roiCrop.padLeft) / roiWidth
+            val cropY = (squareY - roiCrop.padTop) / roiHeight
             floatArrayOf(
-                (roiBounds.left + keypoints[i][0] * roiWidth) / frameWidth,
-                (roiBounds.top + keypoints[i][1] * roiHeight) / frameHeight
+                ((roiBounds.left + cropX * roiWidth) / frameWidth).coerceIn(0f, 1f),
+                ((roiBounds.top + cropY * roiHeight) / frameHeight).coerceIn(0f, 1f)
             )
         }
     }
-    
-    /**
-     * Crop bitmap to ROI and resize to target size.
-     * 
-     * @param bitmap Full frame bitmap
-     * @param roiBounds ROI bounds in pixels
-     * @return Cropped and resized bitmap
-     */
-    fun cropToRoi(bitmap: Bitmap, roiBounds: Rect): Bitmap {
-        // Ensure bounds are valid
+
+    fun mapPoseFrameToFullFrame(
+        frame: PoseFrame,
+        roiCrop: RoiCrop,
+        frameWidth: Int,
+        frameHeight: Int
+    ): PoseFrame {
+        val mappedKeypoints = mapKeypointsToFullFrame(
+            frame.keypoints,
+            roiCrop,
+            frameWidth,
+            frameHeight
+        )
+        val mappedConfidences = frame.confidences.copyOf()
+        val squareSize = roiCrop.squareSize.toFloat()
+        val contentLeft = roiCrop.padLeft.toFloat()
+        val contentTop = roiCrop.padTop.toFloat()
+        val contentRight = contentLeft + roiCrop.contentWidth
+        val contentBottom = contentTop + roiCrop.contentHeight
+
+        for (i in frame.keypoints.indices) {
+            val squareX = frame.keypoints[i][0] * squareSize
+            val squareY = frame.keypoints[i][1] * squareSize
+            val insideContent = squareX in contentLeft..contentRight && squareY in contentTop..contentBottom
+            if (!insideContent) {
+                mappedConfidences[i] = 0f
+            }
+        }
+
+        return frame.copy(
+            keypoints = mappedKeypoints,
+            confidences = mappedConfidences
+        )
+    }
+
+    fun cropToRoi(bitmap: Bitmap, roiBounds: Rect): RoiCrop {
         val x = roiBounds.left.coerceIn(0, bitmap.width - 1)
         val y = roiBounds.top.coerceIn(0, bitmap.height - 1)
         val width = roiBounds.width().coerceIn(1, bitmap.width - x)
         val height = roiBounds.height().coerceIn(1, bitmap.height - y)
-        
-        // Crop
+        val safeBounds = Rect(x, y, x + width, y + height)
+
         val cropped = Bitmap.createBitmap(bitmap, x, y, width, height)
-        
-        // Resize to target size if needed
-        return if (targetRoiSize > 0 && (width != targetRoiSize || height != targetRoiSize)) {
-            Bitmap.createScaledBitmap(cropped, targetRoiSize, targetRoiSize, true)
-        } else {
-            cropped
+        val squareSize = max(width, height)
+        val padLeft = (squareSize - width) / 2
+        val padTop = (squareSize - height) / 2
+        val square = Bitmap.createBitmap(squareSize, squareSize, Bitmap.Config.ARGB_8888)
+        Canvas(square).apply {
+            drawColor(Color.BLACK)
+            drawBitmap(cropped, padLeft.toFloat(), padTop.toFloat(), null)
         }
+
+        val output = if (targetRoiSize > 0 && squareSize != targetRoiSize) {
+            Bitmap.createScaledBitmap(square, targetRoiSize, targetRoiSize, true)
+        } else {
+            square
+        }
+        // createBitmap(source, ...) returns the SAME instance when the crop
+        // covers the whole source with matching config — recycling it would
+        // destroy the caller's frame bitmap, which is still needed for
+        // wireframe drawing and encoding.
+        if (cropped !== bitmap && !cropped.isRecycled) cropped.recycle()
+        if (output !== square && !square.isRecycled) square.recycle()
+
+        return RoiCrop(
+            bitmap = output,
+            roiBounds = safeBounds,
+            squareSize = squareSize,
+            padLeft = padLeft,
+            padTop = padTop,
+            contentWidth = width,
+            contentHeight = height
+        )
     }
-    
-    /**
-     * Get tracking statistics for logging.
-     */
+
     fun getStats(): Map<String, Any> {
         val total = framesInAcquire + framesInTrack + framesInExpand + framesInReacquire
         if (total == 0) return emptyMap()
-        
+
         return mapOf(
             "acquire_pct" to (framesInAcquire * 100f / total),
             "track_pct" to (framesInTrack * 100f / total),
@@ -469,19 +515,18 @@ class ROITracker(
             "reacquire_pct" to (framesInReacquire * 100f / total),
             "reacquire_count" to reacquireCount,
             "transition_count" to transitionCount,
-            "max_consecutive_fail" to maxConsecutiveFail
+            "max_consecutive_fail" to maxConsecutiveFail,
+            "max_lower_body_bad_streak" to maxLowerBodyBadStreak
         )
     }
-    
-    /**
-     * Whether ROI tracking should be used for the next frame.
-     */
+
     fun shouldUseRoi(): Boolean {
         return state == ROIState.TRACK || state == ROIState.EXPAND
     }
-    
-    /**
-     * Current state name for debugging.
-     */
+
+    fun shouldUseExpandedRoi(): Boolean {
+        return state == ROIState.EXPAND
+    }
+
     fun getCurrentState(): String = state.name
 }

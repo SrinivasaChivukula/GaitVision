@@ -39,6 +39,7 @@ class ResultsActivity : BaseActivity() {
     private var localFeatures: GaitFeatures? = null
     private var localDiagnostics: GaitDiagnostics? = null
     private var localScore: ScoringResult? = null
+    private var localJitterComparison: PoseJitterComparison? = null
     private var localParticipantId: Int = 0
     private var localVideoUri: Uri? = null
     
@@ -67,6 +68,7 @@ class ResultsActivity : BaseActivity() {
             localFeatures = AnalysisSession.extractedFeatures
             localDiagnostics = AnalysisSession.extractionDiagnostics
             localScore = AnalysisSession.scoringResult
+            localJitterComparison = AnalysisSession.jitterComparison
             localParticipantId = AnalysisSession.participantId
             localVideoUri = AnalysisSession.galleryUri
 
@@ -153,6 +155,8 @@ class ResultsActivity : BaseActivity() {
                 pcaScore = result.pcaScore ?: Float.NaN
             )
 
+            localJitterComparison = buildJitterComparisonFromResult(result)
+
             localDiagnostics = GaitDiagnostics(
                 videoId = result.videoFileName,
                 fpsDetected = result.fpsDetected ?: 30f,
@@ -226,11 +230,11 @@ class ResultsActivity : BaseActivity() {
 
     private fun getScoreLabel(score: Double): String {
         return when {
-            score >= 90 -> "Excellent Gait"
-            score >= 80 -> "Good Gait"
-            score >= 70 -> "Fair Gait"
-            score >= 60 -> "Moderate Impairment"
-            score >= 50 -> "Notable Impairment"
+            score >= 85 -> "Excellent Gait"
+            score >= 70 -> "Good Gait"
+            score >= 55 -> "Fair Gait"
+            score >= 40 -> "Moderate Impairment"
+            score >= 25 -> "Notable Impairment"
             else -> "Significant Impairment"
         }
     }
@@ -238,8 +242,8 @@ class ResultsActivity : BaseActivity() {
     private fun getScoreColor(score: Float): Int {
         if (score.isNaN()) return android.graphics.Color.GRAY
         return when {
-            score >= 80 -> android.graphics.Color.parseColor("#4CAF50")
-            score >= 60 -> android.graphics.Color.parseColor("#FF9800")
+            score >= 70 -> android.graphics.Color.parseColor("#4CAF50")
+            score >= 40 -> android.graphics.Color.parseColor("#FF9800")
             else -> android.graphics.Color.parseColor("#F44336")
         }
     }
@@ -266,7 +270,13 @@ class ResultsActivity : BaseActivity() {
             appendLine("LDJ knee L/R: ${fmt(f.ldj_knee_left)} / ${fmt(f.ldj_knee_right)}")
             appendLine("LDJ hip: ${fmt(f.ldj_hip)}")
             appendLine("Trunk lean std: ${fmt(f.trunk_lean_std_deg)}")
-            append("Inter-ankle CV: ${fmt(f.inter_ankle_cv)}")
+            appendLine("Inter-ankle CV: ${fmt(f.inter_ankle_cv)}")
+            localJitterComparison?.let { jitter ->
+                appendLine()
+                appendLine("Pose jitter reduction: ${fmt(jitter.jitterReductionPct)}%")
+                appendLine("Pose velocity retained: ${fmt(jitter.velocityRetentionPct)}%")
+                append("Pose snap reduction: ${fmt(jitter.snapReductionPct)}%")
+            }
         }
 
         AlertDialog.Builder(this)
@@ -310,7 +320,8 @@ class ResultsActivity : BaseActivity() {
                     diagnostics = diagnostics,
                     score = localScore,
                     participantId = filePrefix,
-                    videoName = videoName
+                    videoName = videoName,
+                    jitterComparison = localJitterComparison
                 )
 
                 if (success) {
@@ -325,8 +336,45 @@ class ResultsActivity : BaseActivity() {
         }
          
     }
-override fun onSaveInstanceState(outState: Bundle) {
-    super.onSaveInstanceState(outState)
-    outState.putBoolean(KEY_PROFESSIONALLY_REVIEWED, isProfessionallyReviewed)
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_PROFESSIONALLY_REVIEWED, isProfessionallyReviewed)
+    }
+
+    private fun buildJitterComparisonFromResult(
+        result: GaitVision.com.data.AnalysisResult
+    ): PoseJitterComparison? {
+        val rawJitter = result.rawPoseJitter ?: return null
+        val smoothedJitter = result.smoothedPoseJitter ?: return null
+        val rawVelocity = result.rawPoseVelocity ?: Float.NaN
+        val smoothedVelocity = result.smoothedPoseVelocity ?: Float.NaN
+        val rawSnapRate = result.rawPoseSnapRate ?: Float.NaN
+        val smoothedSnapRate = result.smoothedPoseSnapRate ?: Float.NaN
+        val coverage = result.poseConfidenceCoverage ?: Float.NaN
+        val bodyScale = result.poseMedianBodyScale ?: Float.NaN
+        val poseFrames = result.numFramesValid
+        val detectionRate = result.validFrameRate ?: Float.NaN
+
+        return PoseJitterComparison(
+            raw = PoseJitterMetrics(
+                numPoseFrames = poseFrames,
+                detectionRate = detectionRate,
+                confidenceCoverage = coverage,
+                medianBodyScale = bodyScale,
+                jitterSecondDiffNorm = rawJitter,
+                meanVelocityNorm = rawVelocity,
+                snapRate = rawSnapRate
+            ),
+            smoothed = PoseJitterMetrics(
+                numPoseFrames = poseFrames,
+                detectionRate = detectionRate,
+                confidenceCoverage = coverage,
+                medianBodyScale = bodyScale,
+                jitterSecondDiffNorm = smoothedJitter,
+                meanVelocityNorm = smoothedVelocity,
+                snapRate = smoothedSnapRate
+            )
+        )
+    }
 }
-} 

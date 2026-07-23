@@ -42,7 +42,8 @@ object GaitCsvExporter {
         diagnostics: GaitDiagnostics,
         score: ScoringResult?,
         participantId: String,
-        videoName: String
+        videoName: String,
+        jitterComparison: PoseJitterComparison? = null
     ): Boolean {
         return try {
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -73,6 +74,21 @@ object GaitCsvExporter {
                     "ae_score",
                     "ridge_score",
                     "pca_score"
+                ))
+
+                // Position-level jitter validation diagnostics
+                headers.addAll(listOf(
+                    "raw_pose_jitter",
+                    "smoothed_pose_jitter",
+                    "pose_jitter_reduction_pct",
+                    "raw_pose_velocity",
+                    "smoothed_pose_velocity",
+                    "pose_velocity_retention_pct",
+                    "raw_pose_snap_rate",
+                    "smoothed_pose_snap_rate",
+                    "pose_snap_reduction_pct",
+                    "pose_confidence_coverage",
+                    "pose_median_body_scale"
                 ))
                 
                 writer.write(headers.joinToString(","))
@@ -114,6 +130,22 @@ object GaitCsvExporter {
                 } else {
                     repeat(3) { values.add("NaN") }
                 }
+
+                if (jitterComparison != null) {
+                    values.add(formatFloat(jitterComparison.raw.jitterSecondDiffNorm))
+                    values.add(formatFloat(jitterComparison.smoothed.jitterSecondDiffNorm))
+                    values.add(formatFloat(jitterComparison.jitterReductionPct))
+                    values.add(formatFloat(jitterComparison.raw.meanVelocityNorm))
+                    values.add(formatFloat(jitterComparison.smoothed.meanVelocityNorm))
+                    values.add(formatFloat(jitterComparison.velocityRetentionPct))
+                    values.add(formatFloat(jitterComparison.raw.snapRate))
+                    values.add(formatFloat(jitterComparison.smoothed.snapRate))
+                    values.add(formatFloat(jitterComparison.snapReductionPct))
+                    values.add(formatFloat(jitterComparison.smoothed.confidenceCoverage))
+                    values.add(formatFloat(jitterComparison.smoothed.medianBodyScale))
+                } else {
+                    repeat(11) { values.add("NaN") }
+                }
                 
                 writer.write(values.joinToString(","))
                 writer.write("\n")
@@ -133,7 +165,8 @@ object GaitCsvExporter {
     fun generateSummary(
         features: GaitFeatures?,
         diagnostics: GaitDiagnostics,
-        score: ScoringResult?
+        score: ScoringResult?,
+        jitterComparison: PoseJitterComparison? = null
     ): String {
         val sb = StringBuilder()
         
@@ -180,7 +213,20 @@ object GaitCsvExporter {
             if (!score.ridgeScore.isNaN()) sb.appendLine("  Ridge: %.0f/100".format(score.ridgeScore))
             if (!score.pcaScore.isNaN()) sb.appendLine("  PCA: %.0f/100".format(score.pcaScore))
         }
+
+        if (jitterComparison != null) {
+            sb.appendLine()
+            sb.appendLine("Pose Jitter Validation:")
+            sb.appendLine("  Jitter reduction: %.1f%%".format(jitterComparison.jitterReductionPct))
+            sb.appendLine("  Velocity retained: %.1f%%".format(jitterComparison.velocityRetentionPct))
+            sb.appendLine("  Snap reduction: %.1f%%".format(jitterComparison.snapReductionPct))
+            sb.appendLine("  Confidence coverage: %.1f%%".format(jitterComparison.smoothed.confidenceCoverage * 100f))
+        }
         
         return sb.toString()
+    }
+
+    private fun formatFloat(value: Float): String {
+        return if (value.isFinite()) value.toString() else "NaN"
     }
 }

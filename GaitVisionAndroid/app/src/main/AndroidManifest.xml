@@ -68,6 +68,11 @@
             android:theme="@style/Theme.GaitVision"
             android:parentActivityName="GaitVision.com.ui.AnalysisActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+        <activity android:name="GaitVision.com.ui.MultiviewAnalysisActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
         <activity android:name="GaitVision.com.ui.SignalsDashboardActivity"
             android:exported="false"
@@ -109,6 +114,11 @@
             android:parentActivityName="GaitVision.com.ui.PatientProfileActivity"
             tools:ignore="DiscouragedApi,LockedOrientationActivity" />
 
+        <activity
+            android:name="GaitVision.com.ui.MultiviewResultsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.GaitVision" />
         <activity
             android:name="GaitVision.com.ui.ProgressOverTimeActivity"
             android:exported="false"

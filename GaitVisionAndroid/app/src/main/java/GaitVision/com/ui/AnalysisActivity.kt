@@ -5,8 +5,10 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.MediaController
 import android.widget.ProgressBar
@@ -29,6 +31,7 @@ import GaitVision.com.ProcVidEmpty
 import GaitVision.com.AnalysisSession
 import GaitVision.com.persistCurrentSession
 import java.io.File
+import kotlin.math.roundToInt
 
 class AnalysisActivity : BaseActivity() {
 
@@ -37,9 +40,12 @@ class AnalysisActivity : BaseActivity() {
     private var isProcessing = false
     private var shouldSave = true
     private var lastCursorIndex = -1
+    private var playbackBasePositionMs = 0
+    private var playbackClockStartedAtMs = 0L
 
     // Cached view references (resolved once, used every frame)
     private lateinit var videoView: VideoView
+    private lateinit var cardVideoPreview: View
     private lateinit var strideChart: LineChart
     private lateinit var tvChartLabel: TextView
     private lateinit var tvAnkleAngles: TextView
@@ -57,6 +63,7 @@ class AnalysisActivity : BaseActivity() {
 
         // Cache view references once
         videoView = findViewById(R.id.videoView)
+        cardVideoPreview = findViewById(R.id.cardVideoPreview)
         strideChart = findViewById(R.id.strideChart)
         tvChartLabel = findViewById(R.id.tvChartLabel)
         tvAnkleAngles = findViewById(R.id.tvAnkleAngles)
@@ -129,6 +136,7 @@ class AnalysisActivity : BaseActivity() {
 
     private fun runAnalysis() {
         isProcessing = true
+        AnalysisSession.editedUri = null
         // Hide the run-analysis card; progress section takes over
         findViewById<View>(R.id.cardRunAnalysis).visibility = View.GONE
 
@@ -158,7 +166,9 @@ class AnalysisActivity : BaseActivity() {
                     Log.d("AnalysisActivity", "Skipping patient creation/lookup (One-off analysis)")
                 }
 
-                // Process the video (use app cache dir to avoid permission issues)
+                // Match the known-good playback path from the UNT app.
+                // VideoView behaves more reliably here with a stable cache file
+                // that is deleted before each new encode.
                 val outputFilePath = "${cacheDir.absolutePath}/edited_video.mp4"
                 val outputFile = File(outputFilePath)
                 if (outputFile.exists()) {
@@ -250,6 +260,9 @@ class AnalysisActivity : BaseActivity() {
 
     private fun showProcessedVideo() {
         isProcessing = false
+        updateRunnable?.let { handler.removeCallbacks(it) }
+        updateRunnable = null
+        lastCursorIndex = -1
         findViewById<View>(R.id.progressSection).visibility = View.GONE
         findViewById<View>(R.id.videoSection).visibility = View.VISIBLE
         findViewById<View>(R.id.anglesSection).visibility = View.VISIBLE
@@ -258,17 +271,61 @@ class AnalysisActivity : BaseActivity() {
         // Keep run analysis card hidden (processing is done)
         findViewById<View>(R.id.cardRunAnalysis).visibility = View.GONE
 
-        AnalysisSession.editedUri?.let { uri ->
-            videoView.setVideoURI(uri)
+        val previewUri = AnalysisSession.editedUri ?: AnalysisSession.galleryUri
+        previewUri?.let { uri ->
+            videoView.stopPlayback()
             val mediaController = MediaController(this)
             mediaController.setAnchorView(videoView)
             videoView.setMediaController(mediaController)
 
-            videoView.setOnPreparedListener {
-                videoView.start()
+            videoView.setOnPreparedListener { player ->
+                player.isLooping = true
+                adjustVideoPreviewSize(player.videoWidth, player.videoHeight)
                 setupStrideChart()
                 startAngleUpdates()
+                videoView.requestFocus()
+                videoView.post {
+                    videoView.seekTo(0)
+                    videoView.start()
+                    resetPlaybackClock()
+                    Log.d("AnalysisActivity", "Video playback started: playing=${videoView.isPlaying}, duration=${videoView.duration}ms")
+                }
             }
+            videoView.setOnCompletionListener {
+                videoView.seekTo(0)
+                videoView.start()
+                resetPlaybackClock()
+            }
+            videoView.setOnErrorListener { _, what, extra ->
+                Log.e("AnalysisActivity", "Video playback error: what=$what extra=$extra uri=$uri")
+                Toast.makeText(this, "Could not play processed video", Toast.LENGTH_SHORT).show()
+                true
+            }
+            videoView.setOnClickListener {
+                if (videoView.isPlaying) {
+                    playbackBasePositionMs = currentPlaybackPositionMs()
+                    videoView.pause()
+                } else {
+                    playbackClockStartedAtMs = SystemClock.elapsedRealtime()
+                    videoView.start()
+                }
+            }
+            videoView.setVideoURI(uri)
+        }
+    }
+
+    private fun adjustVideoPreviewSize(videoWidth: Int, videoHeight: Int) {
+        if (videoWidth <= 0 || videoHeight <= 0) return
+        val horizontalPaddingPx = (32f * resources.displayMetrics.density).toInt()
+        val availableWidth = (resources.displayMetrics.widthPixels - horizontalPaddingPx).coerceAtLeast(1)
+        val targetHeight = (availableWidth.toFloat() * videoHeight / videoWidth).toInt()
+        val minHeight = (200f * resources.displayMetrics.density).toInt()
+        val maxHeight = (360f * resources.displayMetrics.density).toInt()
+        val clampedHeight = targetHeight.coerceIn(minHeight, maxHeight)
+        val params: ViewGroup.LayoutParams = cardVideoPreview.layoutParams
+        if (params.height != clampedHeight) {
+            params.height = clampedHeight
+            cardVideoPreview.layoutParams = params
         }
     }
 
@@ -333,25 +390,45 @@ class AnalysisActivity : BaseActivity() {
 
     private fun startAngleUpdates() {
         lastCursorIndex = -1
-        val fps = AnalysisSession.extractionDiagnostics?.fpsDetected ?: 30f
-        val msPerFrame = (1000f / fps).toInt().coerceAtLeast(1)
+        val fps = AnalysisSession.extractionDiagnostics?.fpsDetected
+            ?.takeIf { it.isFinite() && it > 0f }
+            ?: 30f
+        val msPerFrame = (1000f / fps).roundToInt().coerceAtLeast(1)
+        val updatePeriodMs = (msPerFrame / 2).coerceIn(16, 50)
         updateRunnable = object : Runnable {
             override fun run() {
                 if (videoView.isPlaying) {
-                    val index = videoView.currentPosition / msPerFrame
+                    val index = currentPlaybackPositionMs() / msPerFrame
                     updateAngleDisplay(index)
                     updateChartCursor(index)
                 }
-                handler.postDelayed(this, msPerFrame.toLong())
+                handler.postDelayed(this, updatePeriodMs.toLong())
             }
         }
         handler.post(updateRunnable!!)
     }
 
+    private fun resetPlaybackClock() {
+        playbackBasePositionMs = videoView.currentPosition
+        playbackClockStartedAtMs = SystemClock.elapsedRealtime()
+    }
+
+    private fun currentPlaybackPositionMs(): Int {
+        if (!videoView.isPlaying) return videoView.currentPosition
+        val duration = videoView.duration.takeIf { it > 0 } ?: Int.MAX_VALUE
+        val elapsedMs = (SystemClock.elapsedRealtime() - playbackClockStartedAtMs).toInt()
+        return (playbackBasePositionMs + elapsedMs).coerceIn(0, duration)
+    }
+
+    private fun lastFrameIndex(): Int {
+        val signals = AnalysisSession.extractedSignals ?: return 0
+        return (signals.timestamps.size - 1).coerceAtLeast(0)
+    }
+
     private fun updateAngleDisplay(index: Int) {
         val signals = AnalysisSession.extractedSignals
         tvAnkleAngles.text = buildAngleString("Ankle", signals?.ankleAngleLeft, signals?.ankleAngleRight, index)
-        tvKneeAngles.text = buildAngleString("Knee", signals?.kneeAngleLeft, signals?.kneeAngleRight, index)
+        tvKneeAngles.text = buildKneeString(signals, index)
         tvHipAngles.text = buildAngleString("Hip", signals?.hipAngleLeft, signals?.hipAngleRight, index)
         tvTorsoAngle.text = formatSingleAngle("Torso", signals?.trunkAngle, index)
     }
@@ -362,6 +439,20 @@ class AnalysisActivity : BaseActivity() {
         val left = if (leftVal != null && !leftVal.isNaN()) String.format("%.1f", leftVal) else "--"
         val right = if (rightVal != null && !rightVal.isNaN()) String.format("%.1f", rightVal) else "--"
         return "L $name: $left°\nR $name: $right°"
+    }
+
+    private fun buildKneeString(signals: GaitVision.com.gait.Signals?, index: Int): String {
+        val angleText = buildAngleString("Knee", signals?.kneeAngleLeft, signals?.kneeAngleRight, index)
+        val leftOffset = formatFrontalKneeOffset(signals?.frontalKneeOffsetLeft, index)
+        val rightOffset = formatFrontalKneeOffset(signals?.frontalKneeOffsetRight, index)
+        return "$angleText\nFront offset L/R: $leftOffset / $rightOffset"
+    }
+
+    private fun formatFrontalKneeOffset(values: FloatArray?, index: Int): String {
+        val value = values?.getOrNull(index)
+        return if (value != null && !value.isNaN()) {
+            "${String.format("%+.1f", value * 100f)}%"
+        } else "--"
     }
     
     private fun formatSingleAngle(name: String, angles: FloatArray?, index: Int): String {
@@ -374,10 +465,31 @@ class AnalysisActivity : BaseActivity() {
     override fun onPause() {
         super.onPause()
         updateRunnable?.let { handler.removeCallbacks(it) }
+        updateRunnable = null
+        if (::videoView.isInitialized && videoView.isPlaying) {
+            playbackBasePositionMs = currentPlaybackPositionMs()
+            videoView.pause()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::videoView.isInitialized && AnalysisSession.editedUri != null) {
+            videoView.post {
+                if (!videoView.isPlaying) {
+                    playbackClockStartedAtMs = SystemClock.elapsedRealtime()
+                    videoView.start()
+                }
+                if (updateRunnable == null) {
+                    startAngleUpdates()
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         updateRunnable?.let { handler.removeCallbacks(it) }
+        updateRunnable = null
     }
 }

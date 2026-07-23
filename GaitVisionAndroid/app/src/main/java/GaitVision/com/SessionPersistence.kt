@@ -26,6 +26,7 @@ suspend fun persistCurrentSession(
     val features = AnalysisSession.extractedFeatures
     val score = AnalysisSession.scoringResult
     val diagnostics = AnalysisSession.extractionDiagnostics
+    val jitter = AnalysisSession.jitterComparison
 
     val result = AnalysisResult(
         patientId = patientId,
@@ -52,6 +53,19 @@ suspend fun persistCurrentSession(
         numStepsDetected = diagnostics?.numStepsDetected ?: 0,
         walkingDirection = diagnostics?.walkingDirection,
         wasFlipped = diagnostics?.wasFlipped ?: false,
+
+        // pose-position jitter validation metrics
+        rawPoseJitter = jitter?.raw?.jitterSecondDiffNorm?.finiteOrNull(),
+        smoothedPoseJitter = jitter?.smoothed?.jitterSecondDiffNorm?.finiteOrNull(),
+        poseJitterReductionPct = jitter?.jitterReductionPct?.finiteOrNull(),
+        rawPoseVelocity = jitter?.raw?.meanVelocityNorm?.finiteOrNull(),
+        smoothedPoseVelocity = jitter?.smoothed?.meanVelocityNorm?.finiteOrNull(),
+        poseVelocityRetentionPct = jitter?.velocityRetentionPct?.finiteOrNull(),
+        rawPoseSnapRate = jitter?.raw?.snapRate?.finiteOrNull(),
+        smoothedPoseSnapRate = jitter?.smoothed?.snapRate?.finiteOrNull(),
+        poseSnapReductionPct = jitter?.snapReductionPct?.finiteOrNull(),
+        poseConfidenceCoverage = jitter?.smoothed?.confidenceCoverage?.finiteOrNull(),
+        poseMedianBodyScale = jitter?.smoothed?.medianBodyScale?.finiteOrNull(),
 
         // 16 features
         cadenceSpm = features?.cadence_spm,
@@ -137,3 +151,5 @@ private fun lookupDisplayName(context: Context): String {
     val uri = AnalysisSession.galleryUri ?: return ""
     return lookupDisplayName(context, uri)
 }
+
+private fun Float.finiteOrNull(): Float? = if (isFinite()) this else null

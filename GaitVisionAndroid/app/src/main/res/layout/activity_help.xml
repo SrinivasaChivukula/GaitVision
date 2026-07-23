@@ -44,7 +44,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Welcome to GaitVision! This application helps you analyze gait patterns and generate comprehensive reports.\n\nKey Features:\n• Patient Management\n• Video Recording and Analysis\n• Comprehensive Gait Reports\n• Historical Data Tracking\n\nTo get started, navigate to the Patient Management section to add a new patient or search for an existing one. Then use the Quick Analysis feature to record or upload a gait video for analysis."
+                android:text="Welcome to GaitLens! This application helps you analyze gait patterns and generate comprehensive reports.\n\nKey Features:\n• Patient Management\n• Video Recording and Analysis\n• Comprehensive Gait Reports\n• Historical Data Tracking\n\nTo get started, navigate to the Patient Management section to add a new patient or search for an existing one. Then use the Quick Analysis feature to record or upload a gait video for analysis."
                 android:textColor="#AAAAAA"
                 android:textSize="14sp"
                 android:lineSpacingExtra="4dp" />

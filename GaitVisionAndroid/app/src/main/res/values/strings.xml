@@ -1,6 +1,6 @@
 <resources>
     <!-- App Information -->
-    <string name="app_name">GaitVision</string>
+    <string name="app_name">GaitLens</string>
     <string name="app_subtitle">2D Gait Analysis for Clinical Use</string>
     <string name="app_description">Advanced gait analysis using computer vision and machine learning for clinical assessment and rehabilitation monitoring.</string>
     
@@ -49,7 +49,7 @@
     
     <!-- Help -->
     <string name="help_title">Help</string>
-    <string name="help_content">GaitVision helps you analyze walking patterns for clinical assessment. Record or select a video of a person walking, then perform analysis to get detailed gait metrics.</string>
+    <string name="help_content">GaitLens helps you analyze walking patterns for clinical assessment. Record or select a video of a person walking, then perform analysis to get detailed gait metrics.</string>
     
     <!-- Instructions -->
     <string name="instruction_step1">1. Enter participant information</string>

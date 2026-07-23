@@ -118,6 +118,10 @@ class DashboardActivity : AppCompatActivity() {
             startActivity(Intent(this, QuickAnalysisActivity::class.java))
         }
 
+        findViewById<View>(R.id.cardMultiviewAnalysis).setOnClickListener {
+            startActivity(Intent(this, MultiviewAnalysisActivity::class.java))
+        }
+
         // Bottom Navigation
         NavigationHelper.setupBottomNav(this)
     }

@@ -19,7 +19,7 @@ object GaitConfig {
     // Feature extractor params
     const val MIN_CONFIDENCE = 0.32f
     const val MAX_INTERP_GAP = 5
-    const val EMA_ALPHA = 0.68f
+    const val EMA_ALPHA = 0.4f
     const val MIN_STEP_TIME_S = 0.32f
     const val MAX_STEP_TIME_S = 1.70f
     const val STEP_DISTANCE_FACTOR = 0.41f
@@ -34,10 +34,23 @@ object GaitConfig {
     const val USE_ROBUST_EXTREMA = true
     const val EXTREMA_PERCENTILE_LO = 5.0f
     const val EXTREMA_PERCENTILE_HI = 95.0f
+
+    // Position smoothing params (One-Euro on normalized 0..1 landmarks).
+    // Higher minCutoff/beta = lighter smoothing and less lag.
+    const val POSITION_SMOOTH_MIN_CUTOFF = 8.0f
+    const val POSITION_SMOOTH_BETA = 40.0f
+    const val POSITION_SMOOTH_MAX_MISS_STREAK = 3
     
     // ROI Tracking params (mirrors PC ROITracker)
-    const val ROI_MARGIN = 1.4f                    // ROI is margin x body size
-    const val ROI_EXPANDED_MARGIN = 1.8f           // Expanded margin when quality drops
+    const val ROI_MARGIN = 1.6f                    // ROI is margin x body size
+    const val ROI_BOUNDS_MIN_CONFIDENCE = 0.3f     // Keypoint confidence needed to contribute to ROI bounds
+
+    // Step-detection confidence thresholds (looser than MIN_CONFIDENCE so step
+    // coverage survives brief low-confidence frames). Used by computeStepSignal
+    // and computeConfidenceCoverage in FeatureExtractor.
+    const val STEP_DETECT_MIN_CONF = 0.15f         // Min confidence for a single-leg ankle/knee sample
+    const val STEP_DETECT_MIN_CONF_BOTH = 0.30f    // Min confidence required on BOTH legs (inter-ankle mode)
+    const val ROI_EXPANDED_MARGIN = 2.2f           // Expanded margin when quality drops
     const val ROI_CENTER_EMA_ALPHA = 0.3f          // Smoothing for center movement
     const val ROI_SIZE_EXPAND_ALPHA = 0.5f         // Fast expansion
     const val ROI_SIZE_SHRINK_ALPHA = 0.1f         // Slow shrinking
@@ -45,12 +58,18 @@ object GaitConfig {
     const val ROI_ACQUIRE_STABLE_FRAMES = 10       // Frames needed to lock tracking
     const val ROI_QUALITY_WINDOW_SIZE = 15         // Rolling window for quality monitoring
     const val ROI_QUALITY_THRESHOLD = 0.3f         // Far-leg conf below this = degraded
+    const val ROI_ACQUIRE_MIN_QUALITY = 0.55f      // Need real lower-body confidence before locking ROI
+    const val ROI_HIGH_CONFIDENCE_BYPASS = 0.70f   // Full-frame is good enough; skip ROI probe
+    const val ROI_ACCEPT_QUALITY_MARGIN = 0.02f    // ROI must beat full-frame quality by this margin
+    const val ROI_LOWER_BODY_EXTRA_PAD = 0.25f     // Extra downward margin to keep feet in crop
+    const val ROI_UPPER_BODY_EXTRA_PAD = 0.08f     // Small head/shoulder safety margin
+    const val ROI_FAST_REACQUIRE_BAD_FRAMES = 3    // Bad leg confidence frames before full-frame reacquire
     const val ROI_DEGRADED_RATIO_THRESHOLD = 0.5f  // 50% of window degraded = expand
-    const val ROI_REACQUIRE_FRAMES = 15            // Burst full-frame frames during reacquire
+    const val ROI_REACQUIRE_FRAMES = 8             // Burst full-frame frames during reacquire
     const val ROI_FAIL_RATIO_TRACK = 0.30f         // >= 30% failures in TRACK -> EXPAND
     const val ROI_FAIL_RATIO_EXPAND = 0.50f        // >= 50% failures in EXPAND -> REACQUIRE
-    const val ROI_CONSECUTIVE_FAIL_REACQUIRE = 5   // Consecutive failures in TRACK -> REACQUIRE
-    const val ROI_MIN_DWELL_FRAMES = 10            // Min frames in state before transition
+    const val ROI_CONSECUTIVE_FAIL_REACQUIRE = 3   // Consecutive failures in TRACK -> REACQUIRE
+    const val ROI_MIN_DWELL_FRAMES = 5             // Min frames in state before transition
     
     // Video processing options
     const val DEFAULT_FPS = 30f                    // Fallback if FPS detection fails
@@ -190,6 +209,53 @@ data class GaitDiagnostics(
 ) : Parcelable
 
 /**
+ * Position-level pose stability metrics.
+ *
+ * jitterSecondDiffNorm is the robust high-frequency landmark wobble estimate:
+ * median(|p[t+1] - 2p[t] + p[t-1]| / bodyScale) over confident, consecutive
+ * lower-body landmark samples. Lower is better.
+ *
+ * meanVelocityNorm is the average per-frame landmark displacement / bodyScale.
+ * It is intentionally tracked next to jitter so a filter cannot look good by
+ * simply flattening real walking motion.
+ */
+@Parcelize
+data class PoseJitterMetrics(
+    val numPoseFrames: Int,
+    val detectionRate: Float,
+    val confidenceCoverage: Float,
+    val medianBodyScale: Float,
+    val jitterSecondDiffNorm: Float,
+    val meanVelocityNorm: Float,
+    val snapRate: Float
+) : Parcelable
+
+@Parcelize
+data class PoseJitterComparison(
+    val raw: PoseJitterMetrics,
+    val smoothed: PoseJitterMetrics
+) : Parcelable {
+    val jitterReductionPct: Float
+        get() = percentDrop(raw.jitterSecondDiffNorm, smoothed.jitterSecondDiffNorm)
+
+    val velocityRetentionPct: Float
+        get() = percentRatio(smoothed.meanVelocityNorm, raw.meanVelocityNorm)
+
+    val snapReductionPct: Float
+        get() = percentDrop(raw.snapRate, smoothed.snapRate)
+
+    private fun percentDrop(before: Float, after: Float): Float {
+        if (!before.isFinite() || !after.isFinite() || before <= 0f) return Float.NaN
+        return ((before - after) / before) * 100f
+    }
+
+    private fun percentRatio(numerator: Float, denominator: Float): Float {
+        if (!numerator.isFinite() || !denominator.isFinite() || denominator <= 0f) return Float.NaN
+        return (numerator / denominator) * 100f
+    }
+}
+
+/**
  * A single detected step event.
  */
 @Parcelize
@@ -242,12 +308,24 @@ data class Signals(
     val hipAngleLeft: FloatArray,
     val hipAngleRight: FloatArray,
     val strideAngle: FloatArray,
+
+    // Frontal-plane knee position diagnostics (not used in the scoring model).
+    // Offset is signed perpendicular knee distance from the hip-ankle line,
+    // normalized by hip-ankle length.
+    val frontalKneeOffsetLeft: FloatArray,
+    val frontalKneeOffsetRight: FloatArray,
     
     // Ankle positions
     val ankleLeftX: FloatArray,
     val ankleRightX: FloatArray,
     val ankleLeftY: FloatArray,
     val ankleRightY: FloatArray,
+
+    // Knee positions
+    val kneeLeftX: FloatArray,
+    val kneeRightX: FloatArray,
+    val kneeLeftY: FloatArray,
+    val kneeRightY: FloatArray,
     
     // Hip positions
     val hipLeftY: FloatArray,
@@ -274,10 +352,16 @@ data class Signals(
                hipAngleLeft.contentEquals(other.hipAngleLeft) &&
                hipAngleRight.contentEquals(other.hipAngleRight) &&
                strideAngle.contentEquals(other.strideAngle) &&
+               frontalKneeOffsetLeft.contentEquals(other.frontalKneeOffsetLeft) &&
+               frontalKneeOffsetRight.contentEquals(other.frontalKneeOffsetRight) &&
                ankleLeftX.contentEquals(other.ankleLeftX) &&
                ankleRightX.contentEquals(other.ankleRightX) &&
                ankleLeftY.contentEquals(other.ankleLeftY) &&
                ankleRightY.contentEquals(other.ankleRightY) &&
+               kneeLeftX.contentEquals(other.kneeLeftX) &&
+               kneeRightX.contentEquals(other.kneeRightX) &&
+               kneeLeftY.contentEquals(other.kneeLeftY) &&
+               kneeRightY.contentEquals(other.kneeRightY) &&
                hipLeftY.contentEquals(other.hipLeftY) &&
                hipRightY.contentEquals(other.hipRightY) &&
                ankleLeftVy.contentEquals(other.ankleLeftVy) &&
@@ -298,15 +382,44 @@ data class Signals(
         result = 31 * result + hipAngleLeft.contentHashCode()
         result = 31 * result + hipAngleRight.contentHashCode()
         result = 31 * result + strideAngle.contentHashCode()
+        result = 31 * result + frontalKneeOffsetLeft.contentHashCode()
+        result = 31 * result + frontalKneeOffsetRight.contentHashCode()
         result = 31 * result + ankleLeftX.contentHashCode()
         result = 31 * result + ankleRightX.contentHashCode()
         result = 31 * result + ankleLeftY.contentHashCode()
         result = 31 * result + ankleRightY.contentHashCode()
+        result = 31 * result + kneeLeftX.contentHashCode()
+        result = 31 * result + kneeRightX.contentHashCode()
+        result = 31 * result + kneeLeftY.contentHashCode()
+        result = 31 * result + kneeRightY.contentHashCode()
         result = 31 * result + hipLeftY.contentHashCode()
         result = 31 * result + hipRightY.contentHashCode()
         result = 31 * result + ankleLeftVy.contentHashCode()
         result = 31 * result + ankleRightVy.contentHashCode()
         result = 31 * result + hipAvgVy.contentHashCode()
         return result
+    }
+}
+
+@Parcelize
+data class BackGaitFeatures(
+    val cadence_spm: Float,
+    val hip_drop_mean: Float,
+    val hip_drop_std: Float,
+    val hip_sway_std: Float,
+    val stride_width_mean: Float,
+    val stride_width_cv: Float,
+    val step_width_asymmetry: Float,
+    val knee_separation_mean: Float,
+    val trunk_lean_mean: Float,
+    val trunk_lean_std: Float,
+    val valid_stride_count: Int
+) : Parcelable {
+    fun toFeatureArray(): FloatArray {
+        return floatArrayOf(
+            cadence_spm, hip_drop_mean, hip_drop_std, hip_sway_std,
+            stride_width_mean, stride_width_cv, step_width_asymmetry,
+            knee_separation_mean, trunk_lean_mean, trunk_lean_std
+        )
     }
 }
