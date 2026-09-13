@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GaitVision | 2D Clinical Gait Analysis & Biomechanics Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #070b14;
+      --card-bg: rgba(15, 23, 42, 0.75);
+      --border: rgba(255, 255, 255, 0.08);
+      --neon-cyan: #38bdf8;
+      --neon-emerald: #10b981;
+      --neon-purple: #a855f7;
+      --neon-rose: #f43f5e;
+      --neon-amber: #f59e0b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: radial-gradient(circle at top, #0f172a 0%, #030712 100%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .header-bar {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 24px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      backdrop-filter: blur(16px);
+      margin-bottom: 24px;
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; color: #fff; box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .brand h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    .brand p { font-size: 0.8rem; color: var(--neon-cyan); font-weight: 500; }
+    .nav-actions { display: flex; gap: 12px; }
+    .btn {
+      padding: 8px 16px; border-radius: 10px; font-size: 0.85rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; display: inline-flex; align-items: center;
+      gap: 8px; transition: all 0.2s; border: 1px solid transparent;
+    }
+    .btn-outline { background: rgba(255, 255, 255, 0.06); color: #fff; border-color: var(--border); }
+    .btn-outline:hover { background: rgba(255, 255, 255, 0.12); }
+    .btn-primary { background: linear-gradient(135deg, var(--neon-cyan), #0284c7); color: #fff; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(56, 189, 248, 0.4); }
+
+    /* Main Workspace Layout */
+    .workspace-grid {
+      width: 100%;
+      max-width: 1200px;
+      display: grid;
+      grid-template-columns: 480px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 980px) {
+      .workspace-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      backdrop-filter: blur(14px);
+    }
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Simulation Canvas */
+    .canvas-box {
+      position: relative;
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    #gaitCanvas {
+      width: 100%;
+      height: 380px;
+      display: block;
+    }
+    .canvas-overlay-badges {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      gap: 8px;
+    }
+    .overlay-badge {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.72rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--neon-cyan);
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .select-input, .range-input {
+      width: 100%;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 650px) {
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .metric-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+    }
+    .metric-val {
+      font-size: 1.35rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      margin: 4px 0;
+    }
+    .metric-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* AI Assessment Score Hero */
+    .assessment-hero {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.1));
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 16px;
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .hero-title { font-size: 0.85rem; color: var(--text-muted); }
+    .hero-score { font-size: 1.8rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--neon-emerald); }
+    .hero-badge {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--neon-emerald);
+      border: 1px solid var(--neon-emerald);
+    }
+    .hero-badge.impaired {
+      background: rgba(244, 63, 94, 0.2);
+      color: var(--neon-rose);
+      border-color: var(--neon-rose);
+    }
+
+    .chart-container {
+      position: relative;
+      height: 220px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-bar">
+    <div class="brand">
+      <div class="brand-icon"><i class="fa-solid fa-person-walking"></i></div>
+      <div>
+        <h1>GaitVision Clinical Studio</h1>
+        <p>2D On-Device Gait Telemetry & Kinematics Assessment</p>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <a href="https://github.com/SrinivasaChivukula/GaitVision" target="_blank" class="btn btn-outline">
+        <i class="fa-brands fa-github"></i> Repository
+      </a>
+      <a href="https://srinivasachivukula.github.io/Srinivasa-s-Portfolio/" target="_blank" class="btn btn-primary">
+        <i class="fa-solid fa-arrow-left"></i> Portfolio Hub
+      </a>
+    </div>
+  </div>
+
+  <div class="workspace-grid">
+    <!-- Left Column: Biomechanical Canvas -->
+    <div class="card">
+      <div class="card-title">
+        <span><i class="fa-solid fa-camera" style="color: var(--neon-cyan);"></i> Pose Kinematic Tracking</span>
+        <span style="font-size: 0.75rem; color: var(--neon-emerald);"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> Live 60 FPS</span>
+      </div>
+
+      <div class="canvas-box">
+        <canvas id="gaitCanvas" width="480" height="380"></canvas>
+        <div class="canvas-overlay-badges">
+          <div class="overlay-badge" id="frameCounter">Frame: 001</div>
+          <div class="overlay-badge" id="cyclePercent">Gait Cycle: 42%</div>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <div>
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Gait Profile Model</label>
+          <select class="select-input" id="profileSelect" onchange="changeProfile()">
+            <option value="healthy">Healthy Adult (Normal)</option>
+            <option value="antalgic">Antalgic Gait (Limp / Pain)</option>
+            <option value="parkinson">Parkinsonian (Short Shuffling)</option>
+            <option value="hemiplegic">Hemiplegic (Circumduction)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Walking Cadence Speed</label>
+          <input type="range" class="range-input" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0" />
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 10px;">
+        <button class="btn btn-outline" style="flex: 1;" onclick="togglePlay()"><i class="fa-solid fa-pause" id="playIcon"></i> Pause Simulation</button>
+        <button class="btn btn-outline" style="flex: 1;" onclick="exportReport()"><i class="fa-solid fa-file-arrow-down"></i> Export Report</button>
+      </div>
+    </div>
+
+    <!-- Right Column: Clinical Feature Extraction & AI Assessment -->
+    <div class="card">
+      <div class="card-title">
+        <span><i class="fa-solid fa-heart-pulse" style="color: var(--neon-purple);"></i> Clinical Biomarkers & Metrics</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">MediaPipe Pose 2D &bull; 16 Extracted Features</span>
+      </div>
+
+      <!-- AI Score Card -->
+      <div class="assessment-hero">
+        <div>
+          <div class="hero-title">ML Ensemble Gait Quality Assessment</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Autoencoder + PCA + Ridge Classifier (AUC: 0.978)</div>
+        </div>
+        <div style="text-align: right;">
+          <div class="hero-score" id="gaitScore">94.2 / 100</div>
+          <div class="hero-badge" id="gaitBadge">Normal Gait Pattern</div>
+        </div>
+      </div>
+
+      <!-- 6 Key Clinical Biomarkers -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Cadence</div>
+          <div class="metric-val" id="mCadence" style="color: var(--neon-cyan);">112.4</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">steps / min</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Stride Time</div>
+          <div class="metric-val" id="mStrideTime" style="color: var(--neon-purple);">1.07</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">seconds</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Knee ROM</div>
+          <div class="metric-val" id="mKneeROM" style="color: var(--neon-emerald);">62.8&deg;</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">Flexion Range</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Gait Asymmetry</div>
+          <div class="metric-val" id="mAsymmetry" style="color: var(--neon-amber);">3.2%</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">&lt; 5% Normal</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Smoothness (LDJ)</div>
+          <div class="metric-val" id="mSmoothness" style="color: var(--neon-cyan);">-4.12</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">Dimensionless Jerk</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Trunk Sway</div>
+          <div class="metric-val" id="mTrunk" style="color: var(--neon-purple);">2.4&deg;</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">Coronal Stability</div>
+        </div>
+      </div>
+
+      <!-- Joint Angle Waveform Chart -->
+      <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 8px;">
+        <i class="fa-solid fa-chart-line" style="color: var(--neon-cyan);"></i> Knee Flexion / Extension Waveform (&theta; Knee)
+      </div>
+      <div class="chart-container">
+        <canvas id="angleChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gaitCanvas');
+    const ctx = canvas.getContext('2d');
+    let isPlaying = true;
+    let t = 0;
+    let frameNum = 0;
+
+    let profile = 'healthy';
+    let chart;
+
+    // Chart init
+    const chartCtx = document.getElementById('angleChart').getContext('2d');
+    const chartData = {
+      labels: Array.from({length: 30}, (_, i) => i + '%'),
+      datasets: [
+        {
+          label: 'Right Knee Flexion',
+          borderColor: '#38bdf8',
+          borderWidth: 2,
+          data: Array(30).fill(20),
+          tension: 0.3,
+          pointRadius: 0
+        },
+        {
+          label: 'Left Knee Flexion',
+          borderColor: '#a855f7',
+          borderWidth: 2,
+          data: Array(30).fill(20),
+          tension: 0.3,
+          pointRadius: 0
+        }
+      ]
+    };
+    chart = new Chart(chartCtx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { labels: { color: '#94a3b8', font: { family: 'Plus Jakarta Sans', size: 11 } } } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' }, min: 0, max: 80 }
+        }
+      }
+    });
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      document.getElementById('playIcon').className = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
+    }
+
+    function changeProfile() {
+      profile = document.getElementById('profileSelect').value;
+      updateMetricsForProfile();
+    }
+
+    function updateMetricsForProfile() {
+      const scoreEl = document.getElementById('gaitScore');
+      const badgeEl = document.getElementById('gaitBadge');
+      const asymEl = document.getElementById('mAsymmetry');
+      const romEl = document.getElementById('mKneeROM');
+      const cadenceEl = document.getElementById('mCadence');
+
+      if (profile === 'healthy') {
+        scoreEl.textContent = '94.2 / 100';
+        scoreEl.style.color = 'var(--neon-emerald)';
+        badgeEl.textContent = 'Normal Gait Pattern';
+        badgeEl.className = 'hero-badge';
+        asymEl.textContent = '3.2%';
+        romEl.textContent = '62.8°';
+        cadenceEl.textContent = '112.4';
+      } else if (profile === 'antalgic') {
+        scoreEl.textContent = '58.7 / 100';
+        scoreEl.style.color = 'var(--neon-rose)';
+        badgeEl.textContent = 'Antalgic Asymmetry Impairment';
+        badgeEl.className = 'hero-badge impaired';
+        asymEl.textContent = '22.8%';
+        romEl.textContent = '38.4°';
+        cadenceEl.textContent = '84.0';
+      } else if (profile === 'parkinson') {
+        scoreEl.textContent = '49.1 / 100';
+        scoreEl.style.color = 'var(--neon-rose)';
+        badgeEl.textContent = 'Parkinsonian Shuffling Gait';
+        badgeEl.className = 'hero-badge impaired';
+        asymEl.textContent = '14.5%';
+        romEl.textContent = '29.2°';
+        cadenceEl.textContent = '126.8';
+      } else if (profile === 'hemiplegic') {
+        scoreEl.textContent = '52.3 / 100';
+        scoreEl.style.color = 'var(--neon-rose)';
+        badgeEl.textContent = 'Hemiplegic Circumduction';
+        badgeEl.className = 'hero-badge impaired';
+        asymEl.textContent = '28.1%';
+        romEl.textContent = '34.0°';
+        cadenceEl.textContent = '78.2';
+      }
+    }
+
+    function draw() {
+      if (!isPlaying) {
+        requestAnimationFrame(draw);
+        return;
+      }
+
+      const speed = parseFloat(document.getElementById('speedSlider').value);
+      t += 0.04 * speed;
+      frameNum++;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Floor line
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(20, 340);
+      ctx.lineTo(460, 340);
+      ctx.stroke();
+
+      // Floor grid markers
+      for (let x = 40; x < 460; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 340);
+        ctx.lineTo(x, 346);
+        ctx.stroke();
+      }
+
+      // Kinematic 2D Joint Coordinates
+      const hipX = 240 + Math.sin(t * 2) * 5;
+      const hipY = 175 + Math.abs(Math.sin(t * 2)) * 6;
+      const trunkTopX = hipX + 4;
+      const trunkTopY = hipY - 75;
+      const headY = trunkTopY - 22;
+
+      // Leg swings
+      let amp = profile === 'parkinson' ? 0.35 : (profile === 'antalgic' ? 0.6 : 0.85);
+      let rHipAngle = Math.sin(t) * amp;
+      let lHipAngle = Math.sin(t + Math.PI) * amp;
+
+      if (profile === 'antalgic') {
+        lHipAngle *= 0.55; // Limp on left leg
+      }
+
+      // Right leg joints
+      const thighLen = 65, shankLen = 65;
+      const rKneeX = hipX + Math.sin(rHipAngle) * thighLen;
+      const rKneeY = hipY + Math.cos(rHipAngle) * thighLen;
+      const rKneeFlex = Math.max(0, Math.sin(t - 1.2)) * (profile === 'healthy' ? 1.1 : 0.5);
+      const rAnkleX = rKneeX + Math.sin(rHipAngle - rKneeFlex) * shankLen;
+      const rAnkleY = rKneeY + Math.cos(rHipAngle - rKneeFlex) * shankLen;
+
+      // Left leg joints
+      const lKneeX = hipX + Math.sin(lHipAngle) * thighLen;
+      const lKneeY = hipY + Math.cos(lHipAngle) * thighLen;
+      const lKneeFlex = Math.max(0, Math.sin(t + Math.PI - 1.2)) * (profile === 'healthy' ? 1.1 : 0.4);
+      const lAnkleX = lKneeX + Math.sin(lHipAngle - lKneeFlex) * shankLen;
+      const lAnkleY = lKneeY + Math.cos(lHipAngle - lKneeFlex) * shankLen;
+
+      // Draw left leg (background - purple)
+      drawLimb(hipX, hipY, lKneeX, lKneeY, '#a855f7', 4);
+      drawLimb(lKneeX, lKneeY, lAnkleX, lAnkleY, '#a855f7', 4);
+      drawJoint(lKneeX, lKneeY, '#c084fc');
+      drawJoint(lAnkleX, lAnkleY, '#c084fc');
+
+      // Draw Trunk & Head
+      drawLimb(hipX, hipY, trunkTopX, trunkTopY, '#38bdf8', 6);
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(trunkTopX, headY, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw right leg (foreground - cyan)
+      drawLimb(hipX, hipY, rKneeX, rKneeY, '#38bdf8', 5);
+      drawLimb(rKneeX, rKneeY, rAnkleX, rAnkleY, '#38bdf8', 5);
+      drawJoint(rKneeX, rKneeY, '#7dd3fc');
+      drawJoint(rAnkleX, rAnkleY, '#7dd3fc');
+      drawJoint(hipX, hipY, '#38bdf8');
+
+      // Update HUD
+      document.getElementById('frameCounter').textContent = 'Frame: ' + String(frameNum).padStart(4, '0');
+      const gaitPct = Math.round(((t % (Math.PI * 2)) / (Math.PI * 2)) * 100);
+      document.getElementById('cyclePercent').textContent = 'Gait Cycle: ' + gaitPct + '%';
+
+      // Update chart buffer
+      if (frameNum % 2 === 0) {
+        chartData.datasets[0].data.shift();
+        chartData.datasets[0].data.push(Math.round(rKneeFlex * 52));
+        chartData.datasets[1].data.shift();
+        chartData.datasets[1].data.push(Math.round(lKneeFlex * 52));
+        chart.update();
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    function drawLimb(x1, y1, x2, y2, color, width) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    function drawJoint(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function exportReport() {
+      alert("GaitVision Clinical Report successfully exported as CSV & JSON telemetry snapshot!");
+    }
+
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>

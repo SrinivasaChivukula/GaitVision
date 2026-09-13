@@ -1,6 +1,14 @@
 # GaitVision
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-38BDF8?style=for-the-badge&logo=googlechrome&logoColor=black)](https://srinivasachivukula.github.io/GaitVision/)
+[![Android](https://img.shields.io/badge/Platform-Android%20API%2024+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-KMP%20%2B%20Jetpack-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Machine Learning](https://img.shields.io/badge/ML%20AUC->0.97-orange?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://github.com/SrinivasaChivukula/GaitVision)
+
 **2D Gait Analysis for Clinical Use**
+
+🔗 **Interactive Live Biomechanics & Gait Telemetry Studio**: [https://srinivasachivukula.github.io/GaitVision/](https://srinivasachivukula.github.io/GaitVision/)
+
 
 An Android application for clinical gait assessment using computer vision and machine learning. The system processes 2D video on device to extract gait features for assessment.
 
